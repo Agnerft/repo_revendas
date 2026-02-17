@@ -1,0 +1,10 @@
+revendas_logins.json
+revenda*.json
+*.xlsx
+__pycache__/
+*.pyc
+.env
+.vscode/
+.idea/
+ngrok.yml
+logs/
