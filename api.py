@@ -12,6 +12,12 @@ df = None
 class SearchRequest(BaseModel):
     termo: str
 
+class RevendaRequest(BaseModel):
+    nome: str
+    email: str
+    password: str
+    filename: Optional[str] = None
+
 def load_data():
     global df
     if os.path.exists(EXCEL_FILE):
@@ -199,11 +205,58 @@ def buscar_cliente(request: SearchRequest):
     return {
         "Revenda": "nao_encontrado",
         "DT_RowId": "nao_encontrado",
-        "Id_client": "",
-        "nome": "",
-        "telefone": "",
-        "data_expiracao": ""
+        "Id_client": "nao_encontrado",
+        "nome": "nao_encontrado",
+        "telefone": "nao_encontrado",
+        "data_expiracao": "nao_encontrado"
     }
+
+@app.post("/revenda/adicionar")
+def adicionar_revenda(request: RevendaRequest):
+    """
+    Adiciona uma nova revenda ao arquivo de logins.
+    """
+    import json
+    LOGINS_FILE = "revendas_logins.json"
+    
+    if not os.path.exists(LOGINS_FILE):
+        logins = []
+    else:
+        try:
+            with open(LOGINS_FILE, 'r', encoding='utf-8') as f:
+                logins = json.load(f)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erro ao ler arquivo de logins: {e}")
+    
+    # Verifica se já existe
+    if any(l['email'] == request.email for l in logins):
+        return {"status": "erro", "mensagem": "Revenda com este e-mail já existe."}
+    
+    # Gera filename se não fornecido
+    filename = request.filename
+    if not filename:
+        import unicodedata
+        import re
+        # Normaliza o nome para ser usado no nome do arquivo
+        clean_name = unicodedata.normalize('NFKD', request.nome).encode('ASCII', 'ignore').decode('ASCII')
+        clean_name = re.sub(r'[^a-zA-Z0-9]', '', clean_name).lower()
+        filename = f"revenda{clean_name}.json"
+    
+    new_revenda = {
+        "nome": request.nome,
+        "email": request.email,
+        "password": request.password,
+        "filename": filename
+    }
+    
+    logins.append(new_revenda)
+    
+    try:
+        with open(LOGINS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(logins, f, indent=4, ensure_ascii=False)
+        return {"status": "sucesso", "mensagem": f"Revenda {request.nome} adicionada com sucesso.", "revenda": new_revenda}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
 
 @app.post("/filtrar")
 def filtrar_clientes(request: SearchRequest):
