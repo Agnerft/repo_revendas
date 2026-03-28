@@ -2,6 +2,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import pandas as pd
 import os
+import json
+import re
+import unicodedata
 from typing import Optional
 
 app = FastAPI(title="Serviço de Busca de Revendas")
@@ -211,12 +214,15 @@ def buscar_cliente(request: SearchRequest):
         "data_expiracao": "nao_encontrado"
     }
 
+@app.get("/revenda/adicionar")
+def adicionar_revenda_get():
+    return {"message": "Para adicionar uma revenda, use o método POST enviando o JSON no corpo da requisição."}
+
 @app.post("/revenda/adicionar")
 def adicionar_revenda(request: RevendaRequest):
     """
     Adiciona uma nova revenda ao arquivo de logins.
     """
-    import json
     LOGINS_FILE = "revendas_logins.json"
     
     if not os.path.exists(LOGINS_FILE):
@@ -235,8 +241,6 @@ def adicionar_revenda(request: RevendaRequest):
     # Gera filename se não fornecido
     filename = request.filename
     if not filename:
-        import unicodedata
-        import re
         # Normaliza o nome para ser usado no nome do arquivo
         clean_name = unicodedata.normalize('NFKD', request.nome).encode('ASCII', 'ignore').decode('ASCII')
         clean_name = re.sub(r'[^a-zA-Z0-9]', '', clean_name).lower()
