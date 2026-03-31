@@ -211,6 +211,7 @@ def buscar_cliente(request: SearchRequest):
         "Id_client": "nao_encontrado",
         "nome": "nao_encontrado",
         "telefone": "nao_encontrado",
+        "plano": "nao_encontrado",
         "data_expiracao": "nao_encontrado"
     }
 

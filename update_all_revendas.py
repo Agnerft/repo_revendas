@@ -103,6 +103,7 @@ def process_and_save(raw_data, filename):
         id_client = item.get('0')
         nome = item.get('1')
         telefone = item.get('4')
+        plano = item.get('5')
         data_expiracao = item.get('7')
         
         if id_client in seen_ids:
@@ -114,6 +115,7 @@ def process_and_save(raw_data, filename):
             "Id_client": id_client,
             "nome": nome,
             "telefone": telefone,
+            "plano": plano,
             "data_expiracao": data_expiracao
         })
         
