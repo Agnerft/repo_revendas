@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import pandas as pd
 import os
 import json
 import re
 import unicodedata
+import subprocess
 from typing import Optional
 
 app = FastAPI(title="Serviço de Busca de Revendas")
@@ -49,6 +51,117 @@ def read_root():
         "total_registros": len(df) if df is not None else 0,
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
+
+@app.get("/painel", response_class=HTMLResponse)
+def painel():
+    return """
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>Painel Revendas</title>
+        <style>
+            body {
+                font-family: Arial;
+                background: #0f172a;
+                color: white;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+            }
+            .box {
+                background: #1e293b;
+                padding: 30px;
+                border-radius: 16px;
+                text-align: center;
+                width: 320px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            }
+            button {
+                background: #22c55e;
+                border: none;
+                padding: 12px;
+                border-radius: 10px;
+                width: 100%;
+                font-size: 16px;
+                cursor: pointer;
+                color: white;
+            }
+            button:hover {
+                opacity: 0.9;
+            }
+            #status {
+                margin-top: 15px;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h2>🚀 Atualizar Revendas</h2>
+            <p>Clique para atualizar os dados</p>
+            <button onclick="atualizar()">Atualizar</button>
+            <div id="status"></div>
+        </div>
+
+        <script>
+            async function atualizar() {
+                const status = document.getElementById("status");
+                status.innerText = "⏳ Atualizando... aguarde";
+
+                try {
+                    const res = await fetch("/atualizar", {
+                        method: "POST"
+                    });
+
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        status.innerText = "✅ Atualizado! Total: " + data.total;
+                    } else {
+                        status.innerText = "❌ Erro: " + (data.detail || "falha");
+                    }
+                } catch (e) {
+                    status.innerText = "❌ Erro de conexão";
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+
+
+@app.post("/atualizar")
+def atualizar():
+    try:
+        result = subprocess.run(
+            ["python", "update_all_revendas.py"],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            load_data()
+            return JSONResponse({
+                "message": "Atualizado com sucesso",
+                "total": len(df)
+            })
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": result.stderr}
+            )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(e)}
+        )
+
+
+
 
 @app.post("/")
 def read_root_post(request: SearchRequest):
