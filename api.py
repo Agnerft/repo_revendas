@@ -280,6 +280,9 @@ def painel(request):
     # Verifica se está autenticado
     if not verify_painel_session(request):
         return RedirectResponse(url="/login")
+    
+    return """
+    <!DOCTYPE html>
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
