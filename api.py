@@ -22,9 +22,10 @@ app = FastAPI(title="Serviço de Busca de Revendas")
 # Token fixo para API (você pode mudar para um mais seguro)
 API_TOKEN = "revenda_token_2024_seguro"
 
-# Login/Senha para o painel web (hash SHA256)
+# Login/Senha para o painel web
 PAINEL_USERNAME = "admin"
-PAINEL_PASSWORD_HASH = hashlib.sha256("admin123".encode()).hexdigest()
+PAINEL_PASSWORD = "admin"  # Altere aqui a senha
+PAINEL_PASSWORD_HASH = hashlib.sha256(PAINEL_PASSWORD.encode()).hexdigest()
 
 # Security scheme para Bearer token
 security = HTTPBearer()
