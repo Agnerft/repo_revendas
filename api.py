@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
 import os
@@ -46,6 +46,10 @@ load_data()
 
 @app.get("/")
 def read_root():
+    return RedirectResponse(url="/painel")
+
+@app.get("/status")
+def status():
     return {
         "message": "API de Busca de Clientes Ativa",
         "total_registros": len(df) if df is not None else 0,
@@ -59,71 +63,309 @@ def painel():
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
-        <title>Painel Revendas</title>
+        <title>Painel API - Revendas</title>
         <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
-                font-family: Arial;
-                background: #0f172a;
-                color: white;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+                color: #e2e8f0;
+                min-height: 100vh;
+                padding: 40px 20px;
             }
-            .box {
-                background: #1e293b;
-                padding: 30px;
-                border-radius: 16px;
+            .container { max-width: 1200px; margin: 0 auto; }
+            h1 {
                 text-align: center;
-                width: 320px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+                margin-bottom: 10px;
+                font-size: 2.5rem;
+                background: linear-gradient(90deg, #22c55e, #3b82f6);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
-            button {
+            .subtitle { text-align: center; color: #94a3b8; margin-bottom: 40px; }
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+                gap: 20px;
+            }
+            .card {
+                background: #1e293b;
+                border-radius: 16px;
+                padding: 24px;
+                border: 1px solid #334155;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+            .card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+            .method {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: bold;
+                text-transform: uppercase;
+                margin-bottom: 12px;
+            }
+            .get { background: #22c55e; color: #fff; }
+            .post { background: #3b82f6; color: #fff; }
+            .endpoint {
+                font-family: 'Courier New', monospace;
+                font-size: 16px;
+                color: #f8fafc;
+                margin-bottom: 12px;
+                word-break: break-all;
+            }
+            .description { color: #94a3b8; font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+            .code-block {
+                background: #0f172a;
+                border-radius: 8px;
+                padding: 16px;
+                font-family: 'Courier New', monospace;
+                font-size: 13px;
+                overflow-x: auto;
+                border-left: 3px solid #22c55e;
+            }
+            .code-block pre { margin: 0; color: #e2e8f0; }
+            .status-bar {
+                background: #0f172a;
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 30px;
+                display: flex;
+                justify-content: space-around;
+                flex-wrap: wrap;
+                gap: 20px;
+                border: 1px solid #334155;
+            }
+            .stat { text-align: center; }
+            .stat-value { font-size: 2rem; font-weight: bold; color: #22c55e; }
+            .stat-label { color: #64748b; font-size: 14px; }
+            .test-btn {
                 background: #22c55e;
                 border: none;
-                padding: 12px;
-                border-radius: 10px;
-                width: 100%;
-                font-size: 16px;
-                cursor: pointer;
+                padding: 10px 20px;
+                border-radius: 8px;
                 color: white;
+                cursor: pointer;
+                font-size: 14px;
+                margin-top: 12px;
+                transition: opacity 0.2s;
             }
-            button:hover {
-                opacity: 0.9;
+            .test-btn:hover { opacity: 0.9; }
+            .response {
+                margin-top: 12px;
+                padding: 12px;
+                border-radius: 8px;
+                font-size: 13px;
+                display: none;
+                white-space: pre-wrap;
+                word-break: break-word;
             }
-            #status {
-                margin-top: 15px;
+            .response.show { display: block; }
+            .response.success { background: #064e3b; color: #6ee7b7; }
+            .response.error { background: #450a0a; color: #fca5a5; }
+            .input-group { margin-top: 12px; }
+            .input-group input {
+                width: 100%;
+                padding: 10px;
+                border-radius: 6px;
+                border: 1px solid #475569;
+                background: #0f172a;
+                color: #e2e8f0;
                 font-size: 14px;
             }
+            .input-group input:focus { outline: none; border-color: #22c55e; }
         </style>
     </head>
     <body>
-        <div class="box">
-            <h2>🚀 Atualizar Revendas</h2>
-            <p>Clique para atualizar os dados</p>
-            <button onclick="atualizar()">Atualizar</button>
-            <div id="status"></div>
+        <div class="container">
+            <h1>🚀 API de Revendas</h1>
+            <p class="subtitle">Documentação completa dos endpoints disponíveis</p>
+            
+            <div class="status-bar">
+                <div class="stat">
+                    <div class="stat-value" id="totalRegs">-</div>
+                    <div class="stat-label">Total de Registros</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">8</div>
+                    <div class="stat-label">Endpoints</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">✅</div>
+                    <div class="stat-label">Status</div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <!-- GET /status -->
+                <div class="card">
+                    <span class="method get">GET</span>
+                    <div class="endpoint">/status</div>
+                    <div class="description">Retorna status da API e total de registros carregados</div>
+                    <div class="code-block"><pre>{
+  "message": "API de Busca de Clientes Ativa",
+  "total_registros": 42860
+}</pre></div>
+                    <button class="test-btn" onclick="testGet('/status', 'r1')">Testar</button>
+                    <div class="response" id="r1"></div>
+                </div>
+
+                <!-- POST /buscar -->
+                <div class="card">
+                    <span class="method post">POST</span>
+                    <div class="endpoint">/buscar</div>
+                    <div class="description">Busca um cliente em todas as colunas pelo termo. Suporta comandos especiais como "atualizar"</div>
+                    <div class="code-block"><pre>Body: { "termo": "+5551999999999" }
+
+Retorna: {
+  "Revenda": "Nome",
+  "nome": "Cliente",
+  "telefone": "+55...",
+  "data_expiracao": "..."
+}</pre></div>
+                    <div class="input-group">
+                        <input type="text" id="in1" placeholder="Telefone, nome ou ID...">
+                    </div>
+                    <button class="test-btn" onclick="testPost('/buscar', 'in1', 'r2')">Testar</button>
+                    <div class="response" id="r2"></div>
+                </div>
+
+                <!-- POST /filtrar -->
+                <div class="card">
+                    <span class="method post">POST</span>
+                    <div class="endpoint">/filtrar</div>
+                    <div class="description">Retorna LISTA com todos os clientes encontrados. Ideal para buscar por data</div>
+                    <div class="code-block"><pre>Body: { "termo": "19/08/2025" }
+
+Retorna: [ { ... }, { ... } ] // array</pre></div>
+                    <div class="input-group">
+                        <input type="text" id="in2" placeholder="Data ou termo...">
+                    </div>
+                    <button class="test-btn" onclick="testPost('/filtrar', 'in2', 'r3')">Testar</button>
+                    <div class="response" id="r3"></div>
+                </div>
+
+                <!-- GET /reload -->
+                <div class="card">
+                    <span class="method get">GET</span>
+                    <div class="endpoint">/reload</div>
+                    <div class="description">Recarrega os dados do Excel sem reiniciar o servidor</div>
+                    <div class="code-block"><pre>Retorna: {
+  "message": "Dados recarregados.",
+  "total_registros": 42860
+}</pre></div>
+                    <button class="test-btn" onclick="testGet('/reload', 'r4')">Recarregar</button>
+                    <div class="response" id="r4"></div>
+                </div>
+
+                <!-- POST /atualizar -->
+                <div class="card">
+                    <span class="method post">POST</span>
+                    <div class="endpoint">/atualizar</div>
+                    <div class="description">Executa o script update_all_revendas.py para atualizar todos os dados (pode demorar)</div>
+                    <div class="code-block"><pre>Retorna: {
+  "message": "Atualizado com sucesso",
+  "total": 42860
+}</pre></div>
+                    <button class="test-btn" onclick="testGet('/atualizar', 'r5', 'POST')">Atualizar Dados</button>
+                    <div class="response" id="r5"></div>
+                </div>
+
+                <!-- GET /revenda/adicionar -->
+                <div class="card">
+                    <span class="method get">GET</span>
+                    <div class="endpoint">/revenda/adicionar</div>
+                    <div class="description">Documentação do endpoint para adicionar revenda</div>
+                    <div class="code-block"><pre>Retorna: instruções de uso do POST</pre></div>
+                    <button class="test-btn" onclick="testGet('/revenda/adicionar', 'r6')">Ver</button>
+                    <div class="response" id="r6"></div>
+                </div>
+
+                <!-- POST /revenda/adicionar -->
+                <div class="card">
+                    <span class="method post">POST</span>
+                    <div class="endpoint">/revenda/adicionar</div>
+                    <div class="description">Adiciona uma nova revenda ao arquivo de logins</div>
+                    <div class="code-block"><pre>Body: {
+  "nome": "Revenda XYZ",
+  "email": "revenda@email.com",
+  "password": "senha123",
+  "filename": "opcional.json"
+}</pre></div>
+                    <button class="test-btn" onclick="alert('Use Postman ou curl para testar este endpoint')">Adicionar Revenda</button>
+                </div>
+
+                <!-- POST / (alias) -->
+                <div class="card">
+                    <span class="method post">POST</span>
+                    <div class="endpoint">/ (alias)</div>
+                    <div class="description">Alias para /buscar. Busca cliente pelo termo enviado</div>
+                    <div class="code-block"><pre>Body: { "termo": "valor" }
+
+Retorna: objeto do cliente encontrado</pre></div>
+                    <div class="input-group">
+                        <input type="text" id="in3" placeholder="Digite o termo de busca...">
+                    </div>
+                    <button class="test-btn" onclick="testPost('/', 'in3', 'r7')">Testar</button>
+                    <div class="response" id="r7"></div>
+                </div>
+            </div>
         </div>
 
         <script>
-            async function atualizar() {
-                const status = document.getElementById("status");
-                status.innerText = "⏳ Atualizando... aguarde";
-
+            // Carrega total de registros ao iniciar
+            async function loadStats() {
                 try {
-                    const res = await fetch("/atualizar", {
-                        method: "POST"
-                    });
-
+                    const res = await fetch('/status');
                     const data = await res.json();
-
-                    if (res.ok) {
-                        status.innerText = "✅ Atualizado! Total: " + data.total;
-                    } else {
-                        status.innerText = "❌ Erro: " + (data.detail || "falha");
-                    }
+                    document.getElementById('totalRegs').textContent = data.total_registros;
                 } catch (e) {
-                    status.innerText = "❌ Erro de conexão";
+                    document.getElementById('totalRegs').textContent = '?';
+                }
+            }
+            loadStats();
+
+            async function testGet(endpoint, respId, method) {
+                const respDiv = document.getElementById(respId);
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Carregando...';
+                
+                try {
+                    const res = await fetch(endpoint, { method: method || 'GET' });
+                    const data = await res.json();
+                    respDiv.className = 'response show success';
+                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            }
+
+            async function testPost(endpoint, inputId, respId) {
+                const termo = document.getElementById(inputId).value;
+                const respDiv = document.getElementById(respId);
+                
+                if (!termo) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Digite um termo de busca';
+                    return;
+                }
+                
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Buscando...';
+                
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ termo })
+                    });
+                    const data = await res.json();
+                    respDiv.className = 'response show success';
+                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
                 }
             }
         </script>
