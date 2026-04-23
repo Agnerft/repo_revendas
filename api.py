@@ -723,11 +723,17 @@ def buscar_cliente_painel(request: SearchRequest, req: Request):
 
 def _buscar_cliente_interno(request: SearchRequest):
     """Função interna de busca usada por ambos os endpoints."""
-    print(f"Recebida busca: {request.termo}")
+    # Extrai o valor entre chaves se vier no formato {numero}
+    termo_raw = request.termo.strip()
+    match = re.match(r'\{(.+?)\}', termo_raw)
+    if match:
+        termo_raw = match.group(1)
+    
+    print(f"Recebida busca: {termo_raw}")
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
     
-    q = request.termo
+    q = termo_raw
     if not q:
         return {"resultados": [], "total": 0}
     
@@ -952,10 +958,16 @@ def filtrar_clientes_painel(request: SearchRequest, req: Request):
 
 def _filtrar_clientes_interno(request: SearchRequest):
     """Função interna de filtro usada por ambos os endpoints."""
+    # Extrai o valor entre chaves se vier no formato {numero}
+    termo_raw = request.termo.strip()
+    match = re.match(r'\{(.+?)\}', termo_raw)
+    if match:
+        termo_raw = match.group(1)
+    
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
     
-    q = request.termo
+    q = termo_raw
     if not q:
         return []
     
