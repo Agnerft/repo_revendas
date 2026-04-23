@@ -702,6 +702,15 @@ def buscar_cliente(request: SearchRequest, token: str = Depends(verify_api_token
     """
     return _buscar_cliente_interno(request)
 
+@app.get("/buscar/{telefone}")
+def buscar_cliente_get(telefone: str, token: str = Depends(verify_api_token)):
+    """
+    Busca um cliente pelo telefone na URL (GET).
+    Requer token Bearer no header Authorization.
+    Exemplo: /buscar/5511999999999
+    """
+    return _buscar_cliente_interno(SearchRequest(termo=telefone))
+
 @app.post("/painel/buscar")
 def buscar_cliente_painel(request: SearchRequest, req: Request):
     """
