@@ -1,6 +1,5 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import pandas as pd
 import os
@@ -9,46 +8,9 @@ import re
 import unicodedata
 import subprocess
 import requests
-import secrets
-import hashlib
 from typing import Optional
 
 app = FastAPI(title="Serviço de Busca de Revendas")
-
-# =============================================================================
-# CONFIGURAÇÃO DE AUTENTICAÇÃO
-# =============================================================================
-
-# Token fixo para API (você pode mudar para um mais seguro)
-API_TOKEN = "revenda_token_2024_seguro"
-
-# Login/Senha para o painel web
-PAINEL_USERNAME = "admin"
-PAINEL_PASSWORD = "admin"  # Altere aqui a senha
-PAINEL_PASSWORD_HASH = hashlib.sha256(PAINEL_PASSWORD.encode()).hexdigest()
-
-# Security scheme para Bearer token
-security = HTTPBearer()
-
-def verify_api_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verifica o token Bearer para chamadas de API."""
-    if credentials.credentials != API_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido ou não fornecido",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return credentials.credentials
-
-def verify_painel_session(request) -> bool:
-    """Verifica se o usuário está logado no painel (via cookie/session)."""
-    # Para simplificar, vamos usar um cookie 'painel_auth'
-    # Em produção, use JWT ou session real
-    auth_cookie = request.cookies.get("painel_auth")
-    if auth_cookie:
-        expected = hashlib.sha256(f"{PAINEL_USERNAME}:{PAINEL_PASSWORD_HASH}".encode()).hexdigest()
-        return auth_cookie == expected
-    return False
 
 EXCEL_FILE = "revendas_consolidadas.xlsx"
 df = None
@@ -61,10 +23,6 @@ class RevendaRequest(BaseModel):
     email: str
     password: str
     filename: Optional[str] = None
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 def load_data():
     global df
@@ -89,24 +47,7 @@ load_data()
 
 @app.get("/")
 def read_root():
-    return RedirectResponse(url="/login")
-
-@app.post("/api/login")
-def api_login(request: LoginRequest):
-    """Endpoint de login para obter token de API."""
-    password_hash = hashlib.sha256(request.password.encode()).hexdigest()
-    
-    if request.username == PAINEL_USERNAME and password_hash == PAINEL_PASSWORD_HASH:
-        return {
-            "status": "sucesso",
-            "token": API_TOKEN,
-            "tipo": "Bearer"
-        }
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha inválidos"
-        )
+    return RedirectResponse(url="/painel")
 
 @app.get("/status")
 def status():
@@ -116,172 +57,8 @@ def status():
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
 
-@app.get("/login", response_class=HTMLResponse)
-def login_page():
-    """Página de login do painel."""
-    return """
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-        <meta charset="UTF-8">
-        <title>Login - Painel Revendas</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-                color: #e2e8f0;
-                min-height: 100vh;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            .login-box {
-                background: #1e293b;
-                padding: 40px;
-                border-radius: 16px;
-                width: 100%;
-                max-width: 400px;
-                border: 1px solid #334155;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-            }
-            h2 {
-                text-align: center;
-                margin-bottom: 30px;
-                background: linear-gradient(90deg, #22c55e, #3b82f6);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .input-group {
-                margin-bottom: 20px;
-            }
-            label {
-                display: block;
-                margin-bottom: 8px;
-                color: #94a3b8;
-                font-size: 14px;
-            }
-            input {
-                width: 100%;
-                padding: 12px;
-                border-radius: 8px;
-                border: 1px solid #475569;
-                background: #0f172a;
-                color: #e2e8f0;
-                font-size: 16px;
-            }
-            input:focus {
-                outline: none;
-                border-color: #22c55e;
-            }
-            button {
-                width: 100%;
-                padding: 14px;
-                background: #22c55e;
-                border: none;
-                border-radius: 8px;
-                color: white;
-                font-size: 16px;
-                cursor: pointer;
-                transition: opacity 0.2s;
-            }
-            button:hover { opacity: 0.9; }
-            .error {
-                background: #450a0a;
-                color: #fca5a5;
-                padding: 12px;
-                border-radius: 8px;
-                margin-top: 15px;
-                display: none;
-            }
-            .error.show { display: block; }
-        </style>
-    </head>
-    <body>
-        <div class="login-box">
-            <h2>🔐 Painel Revendas</h2>
-            <form id="loginForm">
-                <div class="input-group">
-                    <label>Usuário</label>
-                    <input type="text" id="username" required placeholder="Digite seu usuário">
-                </div>
-                <div class="input-group">
-                    <label>Senha</label>
-                    <input type="password" id="password" required placeholder="Digite sua senha">
-                </div>
-                <button type="submit">Entrar</button>
-            </form>
-            <div class="error" id="errorMsg"></div>
-        </div>
-
-        <script>
-            document.getElementById('loginForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = document.getElementById('username').value;
-                const password = document.getElementById('password').value;
-                const errorDiv = document.getElementById('errorMsg');
-                
-                try {
-                    const res = await fetch('/painel-login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, password })
-                    });
-                    
-                    if (res.ok) {
-                        window.location.href = '/painel';
-                    } else {
-                        const data = await res.json();
-                        errorDiv.textContent = data.detail || 'Erro no login';
-                        errorDiv.className = 'error show';
-                    }
-                } catch (e) {
-                    errorDiv.textContent = 'Erro de conexão';
-                    errorDiv.className = 'error show';
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """
-
-@app.post("/painel-login")
-def painel_login(request: LoginRequest):
-    """Autenticação do painel web."""
-    password_hash = hashlib.sha256(request.password.encode()).hexdigest()
-    
-    if request.username == PAINEL_USERNAME and password_hash == PAINEL_PASSWORD_HASH:
-        response = JSONResponse({"status": "sucesso" })
-        # Gera cookie de sessão
-        session_token = hashlib.sha256(f"{PAINEL_USERNAME}:{PAINEL_PASSWORD_HASH}".encode()).hexdigest()
-        response.set_cookie(
-            key="painel_auth",
-            value=session_token,
-            httponly=True,
-            max_age=86400,  # 24 horas
-            samesite="lax"
-        )
-        return response
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha inválidos"
-        )
-
-@app.get("/logout")
-def logout():
-    """Faz logout do painel."""
-    response = RedirectResponse(url="/login")
-    response.delete_cookie("painel_auth")
-    return response
-
 @app.get("/painel", response_class=HTMLResponse)
-def painel(request: Request):
-    """Painel principal - requer autenticação."""
-    # Verifica se está autenticado
-    if not verify_painel_session(request):
-        return RedirectResponse(url="/login")
-    
+def painel():
     return """
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -397,24 +174,10 @@ def painel(request: Request):
                 color: #e2e8f0;
                 font-size: 14px;
             }
-            .logout-btn {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                background: #ef4444;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 8px;
-                color: white;
-                cursor: pointer;
-                font-size: 14px;
-                text-decoration: none;
-            }
-            .logout-btn:hover { opacity: 0.9; }
+            .input-group input:focus { outline: none; border-color: #22c55e; }
         </style>
     </head>
     <body>
-        <a href="/logout" class="logout-btn">🚪 Sair</a>
         <div class="container">
             <h1>🚀 API de Revendas</h1>
             <p class="subtitle">Documentação completa dos endpoints disponíveis</p>
@@ -464,7 +227,7 @@ Retorna: {
                     <div class="input-group">
                         <input type="text" id="in1" placeholder="Telefone, nome ou ID...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/painel/buscar', 'in1', 'r2')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/buscar', 'in1', 'r2')">Testar</button>
                     <div class="response" id="r2"></div>
                 </div>
 
@@ -479,7 +242,7 @@ Retorna: [ { ... }, { ... } ] // array</pre></div>
                     <div class="input-group">
                         <input type="text" id="in2" placeholder="Data ou termo...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/painel/filtrar', 'in2', 'r3')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/filtrar', 'in2', 'r3')">Testar</button>
                     <div class="response" id="r3"></div>
                 </div>
 
@@ -544,7 +307,7 @@ Retorna: objeto do cliente encontrado</pre></div>
                     <div class="input-group">
                         <input type="text" id="in3" placeholder="Digite o termo de busca...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/painel/buscar', 'in3', 'r7')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/', 'in3', 'r7')">Testar</button>
                     <div class="response" id="r7"></div>
                 </div>
 
@@ -640,7 +403,7 @@ Retorna: dados da linha na API externa</pre></div>
                 respDiv.textContent = '⏳ Consultando API externa...';
                 
                 try {
-                    const res = await fetch('/painel/consultar-linha/' + telefoneLimpo);
+                    const res = await fetch('/consultar-linha/' + telefoneLimpo);
                     const data = await res.json();
                     respDiv.className = 'response show success';
                     respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
@@ -694,46 +457,16 @@ def read_root_post(request: SearchRequest):
     return buscar_cliente(request)
 
 @app.post("/buscar")
-def buscar_cliente(request: SearchRequest, token: str = Depends(verify_api_token)):
+def buscar_cliente(request: SearchRequest):
     """
     Busca um cliente em todas as colunas pelo termo enviado no corpo da requisição.
-    Requer token Bearer no header Authorization.
     Body: { "termo": "valor da busca" }
     """
-    return _buscar_cliente_interno(request)
-
-@app.get("/buscar/{telefone}")
-def buscar_cliente_get(telefone: str, token: str = Depends(verify_api_token)):
-    """
-    Busca um cliente pelo telefone na URL (GET).
-    Requer token Bearer no header Authorization.
-    Exemplo: /buscar/5511999999999
-    """
-    return _buscar_cliente_interno(SearchRequest(termo=telefone))
-
-@app.post("/painel/buscar")
-def buscar_cliente_painel(request: SearchRequest, req: Request):
-    """
-    Busca um cliente pelo painel web (requer sessão, não token).
-    Body: { "termo": "valor da busca" }
-    """
-    if not verify_painel_session(req):
-        raise HTTPException(status_code=401, detail="Não autenticado")
-    return _buscar_cliente_interno(request)
-
-def _buscar_cliente_interno(request: SearchRequest):
-    """Função interna de busca usada por ambos os endpoints."""
-    # Extrai o valor entre chaves se vier no formato {numero}
-    termo_raw = request.termo.strip()
-    match = re.match(r'\{(.+?)\}', termo_raw)
-    if match:
-        termo_raw = match.group(1)
-    
-    print(f"Recebida busca: {termo_raw}")
+    print(f"Recebida busca: {request.termo}")
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
     
-    q = termo_raw
+    q = request.termo
     if not q:
         return {"resultados": [], "total": 0}
     
@@ -938,36 +671,15 @@ def adicionar_revenda(request: RevendaRequest):
         raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
 
 @app.post("/filtrar")
-def filtrar_clientes(request: SearchRequest, token: str = Depends(verify_api_token)):
+def filtrar_clientes(request: SearchRequest):
     """
     Retorna uma LISTA com todos os clientes encontrados pelo termo.
-    Requer token Bearer no header Authorization.
     Ideal para buscar por data (ex: '19/08/2025').
     """
-    return _filtrar_clientes_interno(request)
-
-@app.post("/painel/filtrar")
-def filtrar_clientes_painel(request: SearchRequest, req: Request):
-    """
-    Retorna uma LISTA com todos os clientes encontrados pelo termo (painel web).
-    Requer sessão, não token.
-    """
-    if not verify_painel_session(req):
-        raise HTTPException(status_code=401, detail="Não autenticado")
-    return _filtrar_clientes_interno(request)
-
-def _filtrar_clientes_interno(request: SearchRequest):
-    """Função interna de filtro usada por ambos os endpoints."""
-    # Extrai o valor entre chaves se vier no formato {numero}
-    termo_raw = request.termo.strip()
-    match = re.match(r'\{(.+?)\}', termo_raw)
-    if match:
-        termo_raw = match.group(1)
-    
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
     
-    q = termo_raw
+    q = request.termo
     if not q:
         return []
     
@@ -994,10 +706,9 @@ API_KEY_EXTERNA = "klxMbmr6pWOGO48GNvG746SWnQk_BMl3In4c_9IDpD4"
 API_BASE_URL = "https://api.painel.best/lines/"  # Ajuste para a URL real da API
 
 @app.post("/consultar-linha")
-def consultar_linha_externa(request: SearchRequest, token: str = Depends(verify_api_token)):
+def consultar_linha_externa(request: SearchRequest):
     """
     Consulta a API externa buscando por número de telefone.
-    Requer token Bearer no header Authorization.
     Body: { "termo": "5511999999999" }
     """
     telefone = request.termo.strip()
@@ -1084,26 +795,11 @@ def consultar_linha_externa(request: SearchRequest, token: str = Depends(verify_
         raise HTTPException(status_code=503, detail=f"Erro na API externa: {str(e)}")
 
 @app.get("/consultar-linha/{telefone}")
-def consultar_linha_externa_get(telefone: str, token: str = Depends(verify_api_token)):
+def consultar_linha_externa_get(telefone: str):
     """
     Consulta a API externa passando o telefone na URL.
-    Requer token Bearer no header Authorization.
     Exemplo: /consultar-linha/5511999999999
     """
-    return _consultar_linha_interno(telefone)
-
-@app.get("/painel/consultar-linha/{telefone}")
-def consultar_linha_externa_get_painel(telefone: str, req: Request):
-    """
-    Consulta a API externa passando o telefone na URL (painel web).
-    Requer sessão, não token.
-    """
-    if not verify_painel_session(req):
-        raise HTTPException(status_code=401, detail="Não autenticado")
-    return _consultar_linha_interno(telefone)
-
-def _consultar_linha_interno(telefone: str):
-    """Função interna de consulta de linha usada por ambos os endpoints."""
     if not telefone:
         raise HTTPException(status_code=400, detail="Telefone não informado")
     
