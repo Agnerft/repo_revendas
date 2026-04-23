@@ -464,7 +464,7 @@ Retorna: {
                     <div class="input-group">
                         <input type="text" id="in1" placeholder="Telefone, nome ou ID...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/buscar', 'in1', 'r2')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/painel/buscar', 'in1', 'r2')">Testar</button>
                     <div class="response" id="r2"></div>
                 </div>
 
@@ -479,7 +479,7 @@ Retorna: [ { ... }, { ... } ] // array</pre></div>
                     <div class="input-group">
                         <input type="text" id="in2" placeholder="Data ou termo...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/filtrar', 'in2', 'r3')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/painel/filtrar', 'in2', 'r3')">Testar</button>
                     <div class="response" id="r3"></div>
                 </div>
 
@@ -544,7 +544,7 @@ Retorna: objeto do cliente encontrado</pre></div>
                     <div class="input-group">
                         <input type="text" id="in3" placeholder="Digite o termo de busca...">
                     </div>
-                    <button class="test-btn" onclick="testPost('/', 'in3', 'r7')">Testar</button>
+                    <button class="test-btn" onclick="testPost('/painel/buscar', 'in3', 'r7')">Testar</button>
                     <div class="response" id="r7"></div>
                 </div>
 
@@ -640,7 +640,7 @@ Retorna: dados da linha na API externa</pre></div>
                 respDiv.textContent = '⏳ Consultando API externa...';
                 
                 try {
-                    const res = await fetch('/consultar-linha/' + telefoneLimpo);
+                    const res = await fetch('/painel/consultar-linha/' + telefoneLimpo);
                     const data = await res.json();
                     respDiv.className = 'response show success';
                     respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
@@ -700,6 +700,20 @@ def buscar_cliente(request: SearchRequest, token: str = Depends(verify_api_token
     Requer token Bearer no header Authorization.
     Body: { "termo": "valor da busca" }
     """
+    return _buscar_cliente_interno(request)
+
+@app.post("/painel/buscar")
+def buscar_cliente_painel(request: SearchRequest, req: Request):
+    """
+    Busca um cliente pelo painel web (requer sessão, não token).
+    Body: { "termo": "valor da busca" }
+    """
+    if not verify_painel_session(req):
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return _buscar_cliente_interno(request)
+
+def _buscar_cliente_interno(request: SearchRequest):
+    """Função interna de busca usada por ambos os endpoints."""
     print(f"Recebida busca: {request.termo}")
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
@@ -915,6 +929,20 @@ def filtrar_clientes(request: SearchRequest, token: str = Depends(verify_api_tok
     Requer token Bearer no header Authorization.
     Ideal para buscar por data (ex: '19/08/2025').
     """
+    return _filtrar_clientes_interno(request)
+
+@app.post("/painel/filtrar")
+def filtrar_clientes_painel(request: SearchRequest, req: Request):
+    """
+    Retorna uma LISTA com todos os clientes encontrados pelo termo (painel web).
+    Requer sessão, não token.
+    """
+    if not verify_painel_session(req):
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return _filtrar_clientes_interno(request)
+
+def _filtrar_clientes_interno(request: SearchRequest):
+    """Função interna de filtro usada por ambos os endpoints."""
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
     
@@ -1041,6 +1069,20 @@ def consultar_linha_externa_get(telefone: str, token: str = Depends(verify_api_t
     Requer token Bearer no header Authorization.
     Exemplo: /consultar-linha/5511999999999
     """
+    return _consultar_linha_interno(telefone)
+
+@app.get("/painel/consultar-linha/{telefone}")
+def consultar_linha_externa_get_painel(telefone: str, req: Request):
+    """
+    Consulta a API externa passando o telefone na URL (painel web).
+    Requer sessão, não token.
+    """
+    if not verify_painel_session(req):
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return _consultar_linha_interno(telefone)
+
+def _consultar_linha_interno(telefone: str):
+    """Função interna de consulta de linha usada por ambos os endpoints."""
     if not telefone:
         raise HTTPException(status_code=400, detail="Telefone não informado")
     
