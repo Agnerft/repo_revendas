@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 import subprocess
+import requests
 from typing import Optional
 
 app = FastAPI(title="Serviço de Busca de Revendas")
@@ -187,7 +188,7 @@ def painel():
                     <div class="stat-label">Total de Registros</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-value">8</div>
+                    <div class="stat-value">9</div>
                     <div class="stat-label">Endpoints</div>
                 </div>
                 <div class="stat">
@@ -309,6 +310,22 @@ Retorna: objeto do cliente encontrado</pre></div>
                     <button class="test-btn" onclick="testPost('/', 'in3', 'r7')">Testar</button>
                     <div class="response" id="r7"></div>
                 </div>
+
+                <!-- GET /consultar-linha/{telefone} -->
+                <div class="card">
+                    <span class="method get">GET</span>
+                    <div class="endpoint">/consultar-linha/{telefone}</div>
+                    <div class="description">Consulta API externa de linhas pelo número de telefone</div>
+                    <div class="code-block"><pre>Ex: /consultar-linha/5511999999999
+
+Headers: Api-Key: ***
+Retorna: dados da linha na API externa</pre></div>
+                    <div class="input-group">
+                        <input type="text" id="in4" placeholder="Telefone com DDD...">
+                    </div>
+                    <button class="test-btn" onclick="testConsultarLinha()">Consultar</button>
+                    <div class="response" id="r8"></div>
+                </div>
             </div>
         </div>
 
@@ -360,6 +377,33 @@ Retorna: objeto do cliente encontrado</pre></div>
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ termo })
                     });
+                    const data = await res.json();
+                    respDiv.className = 'response show success';
+                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            }
+
+            async function testConsultarLinha() {
+                const telefone = document.getElementById('in4').value.trim();
+                const respDiv = document.getElementById('r8');
+                
+                if (!telefone) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Digite um telefone';
+                    return;
+                }
+                
+                // Remove caracteres não numéricos
+                const telefoneLimpo = telefone.replace(/\D/g, '');
+                
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Consultando API externa...';
+                
+                try {
+                    const res = await fetch('/consultar-linha/' + telefoneLimpo);
                     const data = await res.json();
                     respDiv.className = 'response show success';
                     respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
@@ -555,6 +599,13 @@ def buscar_cliente(request: SearchRequest):
             phone = str(item["telefone"])
             digits = re.sub(r'[^\d]', '', phone)
             item["telefone"] = f"+{digits}" if digits else phone
+        
+        # Adiciona o link de pagamento
+        dt_row_id = item.get("DT_RowId", "")
+        if dt_row_id and dt_row_id != "nao_encontrado":
+            item["Link"] = f"https://pagueaqui.top/{dt_row_id}"
+        else:
+            item["Link"] = "nao_encontrado"
             
         return item
     
@@ -567,7 +618,8 @@ def buscar_cliente(request: SearchRequest):
         "nome": "nao_encontrado",
         "telefone": "nao_encontrado",
         "plano": "nao_encontrado",
-        "data_expiracao": "nao_encontrado"
+        "data_expiracao": "nao_encontrado",
+        "Link": "nao_encontrado"
     }
 
 @app.get("/revenda/adicionar")
@@ -645,6 +697,189 @@ def reload_data():
     """Recarrega os dados do Excel sem reiniciar o servidor."""
     load_data()
     return {"message": "Dados recarregados.", "total_registros": len(df)}
+
+# =============================================================================
+# API EXTERNA - Consulta de Linhas
+# =============================================================================
+
+API_KEY_EXTERNA = "klxMbmr6pWOGO48GNvG746SWnQk_BMl3In4c_9IDpD4"
+API_BASE_URL = "https://api.painel.best/lines/"  # Ajuste para a URL real da API
+
+@app.post("/consultar-linha")
+def consultar_linha_externa(request: SearchRequest):
+    """
+    Consulta a API externa buscando por número de telefone.
+    Body: { "termo": "5511999999999" }
+    """
+    telefone = request.termo.strip()
+    
+    if not telefone:
+        raise HTTPException(status_code=400, detail="Telefone não informado")
+    
+    # Remove caracteres não numéricos para a busca
+    telefone_limpo = re.sub(r'[^\d]', '', telefone)
+    
+    headers = {
+        'Api-Key': API_KEY_EXTERNA
+    }
+    
+    params = {
+        'search': telefone_limpo,
+        'page': 1,
+        'per_page': 100
+    }
+    
+    try:
+        response = requests.get(API_BASE_URL, headers=headers, params=params, timeout=30)
+        
+        # Debug - log do que foi retornado
+        print(f"API Externa - Status: {response.status_code}")
+        print(f"API Externa - URL: {response.url}")
+        print(f"API Externa - Resposta (primeiros 500 chars): {response.text[:500]}")
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                # Formata a resposta de forma apresentável
+                if data.get('results') and len(data['results']) > 0:
+                    linha = data['results'][0]
+                    
+                    # Converte timestamps para datas legíveis
+                    from datetime import datetime
+                    exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
+                    created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
+                    
+                    resultado_formatado = {
+                        "status": "✅ ENCONTRADO",
+                        "telefone": linha.get('phone', 'N/A'),
+                        "usuario": linha.get('username', 'N/A'),
+                        "senha": linha.get('password', 'N/A'),
+                        "vencimento": exp_date,
+                        "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
+                        "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
+                        "e_teste": "Sim" if linha.get('is_trial') else "Não",
+                        "criado_em": created_at,
+                        "notas": linha.get('notes', ''),
+                        "revenda": linha.get('user_username', 'N/A')
+                    }
+                    
+                    return {
+                        "status": "sucesso",
+                        "telefone_buscado": telefone,
+                        "total_encontrado": data.get('count', 0),
+                        "linha": resultado_formatado
+                    }
+                else:
+                    return {
+                        "status": "nao_encontrado",
+                        "telefone_buscado": telefone,
+                        "mensagem": "Nenhuma linha encontrada com este telefone"
+                    }
+                    
+            except json.JSONDecodeError:
+                return {
+                    "status": "erro",
+                    "telefone_buscado": telefone,
+                    "erro": "Resposta não é JSON válido",
+                    "resposta_raw": response.text[:500]
+                }
+        else:
+            return {
+                "status": "erro",
+                "telefone_buscado": telefone,
+                "http_code": response.status_code,
+                "resposta": response.text[:500]
+            }
+            
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro na API externa: {str(e)}")
+
+@app.get("/consultar-linha/{telefone}")
+def consultar_linha_externa_get(telefone: str):
+    """
+    Consulta a API externa passando o telefone na URL.
+    Exemplo: /consultar-linha/5511999999999
+    """
+    if not telefone:
+        raise HTTPException(status_code=400, detail="Telefone não informado")
+    
+    # Remove caracteres não numéricos
+    telefone_limpo = re.sub(r'[^\d]', '', telefone)
+    
+    headers = {
+        'Api-Key': API_KEY_EXTERNA
+    }
+    
+    params = {
+        'search': telefone_limpo,
+        'page': 1,
+        'per_page': 100
+    }
+    
+    try:
+        response = requests.get(API_BASE_URL, headers=headers, params=params, timeout=30)
+        
+        # Debug - log do que foi retornado
+        print(f"API Externa GET - Status: {response.status_code}")
+        print(f"API Externa GET - URL: {response.url}")
+        print(f"API Externa GET - Resposta (primeiros 500 chars): {response.text[:500]}")
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                # Formata a resposta de forma apresentável
+                if data.get('results') and len(data['results']) > 0:
+                    linha = data['results'][0]
+                    
+                    # Converte timestamps para datas legíveis
+                    from datetime import datetime
+                    exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
+                    created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
+                    
+                    resultado_formatado = {
+                        "status": "✅ ENCONTRADO",
+                        "telefone": linha.get('phone', 'N/A'),
+                        "usuario": linha.get('username', 'N/A'),
+                        "senha": linha.get('password', 'N/A'),
+                        "vencimento": exp_date,
+                        "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
+                        "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
+                        "e_teste": "Sim" if linha.get('is_trial') else "Não",
+                        "criado_em": created_at,
+                        "notas": linha.get('notes', ''),
+                        "revenda": linha.get('user_username', 'N/A')
+                    }
+                    
+                    return {
+                        "status": "sucesso",
+                        "telefone_buscado": telefone,
+                        "total_encontrado": data.get('count', 0),
+                        "linha": resultado_formatado
+                    }
+                else:
+                    return {
+                        "status": "nao_encontrado",
+                        "telefone_buscado": telefone,
+                        "mensagem": "Nenhuma linha encontrada com este telefone"
+                    }
+                    
+            except json.JSONDecodeError:
+                return {
+                    "status": "erro",
+                    "telefone_buscado": telefone,
+                    "erro": "Resposta não é JSON válido",
+                    "resposta_raw": response.text[:500]
+                }
+        else:
+            return {
+                "status": "erro",
+                "telefone_buscado": telefone,
+                "http_code": response.status_code,
+                "resposta": response.text[:500]
+            }
+            
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro na API externa: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
