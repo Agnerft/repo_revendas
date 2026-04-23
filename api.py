@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -276,7 +276,7 @@ def logout():
     return response
 
 @app.get("/painel", response_class=HTMLResponse)
-def painel(request):
+def painel(request: Request):
     """Painel principal - requer autenticação."""
     # Verifica se está autenticado
     if not verify_painel_session(request):
