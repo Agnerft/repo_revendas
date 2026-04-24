@@ -188,7 +188,7 @@ def painel():
                     <div class="stat-label">Total de Registros</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-value">9</div>
+                    <div class="stat-value">11</div>
                     <div class="stat-label">Endpoints</div>
                 </div>
                 <div class="stat">
@@ -326,6 +326,36 @@ Retorna: dados da linha na API externa</pre></div>
                     <button class="test-btn" onclick="testConsultarLinha()">Consultar</button>
                     <div class="response" id="r8"></div>
                 </div>
+
+                <!-- GET /revenda/listar -->
+                <div class="card">
+                    <span class="method get">GET</span>
+                    <div class="endpoint">/revenda/listar</div>
+                    <div class="description">Lista todas as revendas cadastradas com total de clientes</div>
+                    <div class="code-block"><pre>Retorna: {
+  "total": 5,
+  "revendas": [
+    { "nome": "...", "email": "...", "total_clientes": 150 }
+  ]
+}</pre></div>
+                    <button class="test-btn" onclick="testGet('/revenda/listar', 'r9')">Listar Revendas</button>
+                    <div class="response" id="r9"></div>
+                </div>
+
+                <!-- DELETE /revenda/excluir -->
+                <div class="card">
+                    <span class="method" style="background: #ef4444; color: #fff;">DELETE</span>
+                    <div class="endpoint">/revenda/excluir</div>
+                    <div class="description">Exclui uma revenda pelo email</div>
+                    <div class="code-block"><pre>Body: { "email": "revenda@email.com" }
+
+⚠️ Atenção: Remove também o arquivo JSON</pre></div>
+                    <div class="input-group">
+                        <input type="email" id="in5" placeholder="Email da revenda...">
+                    </div>
+                    <button class="test-btn" onclick="testDeleteRevenda()" style="background: #ef4444;">🗑️ Excluir Revenda</button>
+                    <div class="response" id="r10"></div>
+                </div>
             </div>
         </div>
 
@@ -407,6 +437,46 @@ Retorna: dados da linha na API externa</pre></div>
                     const data = await res.json();
                     respDiv.className = 'response show success';
                     respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            }
+
+            async function testDeleteRevenda() {
+                const email = document.getElementById('in5').value.trim();
+                const respDiv = document.getElementById('r10');
+                
+                if (!email) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Digite o email da revenda';
+                    return;
+                }
+                
+                // Confirmação antes de excluir
+                if (!confirm('⚠️ Tem certeza que deseja excluir a revenda: ' + email + '?\n\nEsta ação não pode ser desfeita!')) {
+                    return;
+                }
+                
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Excluindo revenda...';
+                
+                try {
+                    const res = await fetch('/revenda/excluir', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: email })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'sucesso') {
+                        respDiv.className = 'response show success';
+                        respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                        document.getElementById('in5').value = ''; // Limpa o campo
+                    } else {
+                        respDiv.className = 'response show error';
+                        respDiv.textContent = '❌ ' + JSON.stringify(data, null, 2);
+                    }
                 } catch (e) {
                     respDiv.className = 'response show error';
                     respDiv.textContent = '❌ Erro: ' + e.message;
@@ -721,7 +791,7 @@ def excluir_revenda(request: DeleteRevendaRequest):
 @app.get("/revenda/listar")
 def listar_revendas():
     """
-    Lista todas as revendas cadastradas.
+    Lista todas as revendas cadastradas com quantidade de clientes.
     """
     LOGINS_FILE = "revendas_logins.json"
     
@@ -732,8 +802,27 @@ def listar_revendas():
         with open(LOGINS_FILE, 'r', encoding='utf-8') as f:
             logins = json.load(f)
         
-        # Retorna apenas nome e email (não mostra senha)
-        revendas_lista = [{"nome": r["nome"], "email": r["email"], "filename": r["filename"]} for r in logins]
+        # Retorna nome, email, filename e quantidade de clientes
+        revendas_lista = []
+        for r in logins:
+            revenda_info = {
+                "nome": r["nome"], 
+                "email": r["email"], 
+                "filename": r["filename"],
+                "total_clientes": 0
+            }
+            
+            # Conta clientes no arquivo JSON da revenda
+            filename = r.get('filename')
+            if filename and os.path.exists(filename):
+                try:
+                    with open(filename, 'r', encoding='utf-8') as f:
+                        clientes = json.load(f)
+                        revenda_info["total_clientes"] = len(clientes)
+                except:
+                    pass
+            
+            revendas_lista.append(revenda_info)
         
         return {
             "status": "sucesso",
