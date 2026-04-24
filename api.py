@@ -363,10 +363,13 @@ Retorna: dados da linha na API externa</pre></div>
         </div>
 
         <script>
+            // Versão do painel para forçar refresh
+            const PAINEL_VERSION = '2.0';
+            
             // Carrega total de registros ao iniciar
             async function loadStats() {
                 try {
-                    const res = await fetch('/status');
+                    const res = await fetch('/status?v=' + PAINEL_VERSION);
                     const data = await res.json();
                     document.getElementById('totalRegs').textContent = data.total_registros;
                 } catch (e) {
@@ -375,13 +378,18 @@ Retorna: dados da linha na API externa</pre></div>
             }
             loadStats();
 
-            async function testGet(endpoint, respId, method) {
+            // Garante que as funções estão no escopo global
+            window.testGet = async function(endpoint, respId, method) {
                 const respDiv = document.getElementById(respId);
+                if (!respDiv) {
+                    console.error('Elemento não encontrado:', respId);
+                    return;
+                }
                 respDiv.className = 'response show';
                 respDiv.textContent = '⏳ Carregando...';
                 
                 try {
-                    const res = await fetch(endpoint, { method: method || 'GET' });
+                    const res = await fetch(endpoint + '?v=' + PAINEL_VERSION, { method: method || 'GET' });
                     const data = await res.json();
                     respDiv.className = 'response show success';
                     respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
@@ -389,11 +397,16 @@ Retorna: dados da linha na API externa</pre></div>
                     respDiv.className = 'response show error';
                     respDiv.textContent = '❌ Erro: ' + e.message;
                 }
-            }
+            };
 
-            async function testPost(endpoint, inputId, respId) {
-                const termo = document.getElementById(inputId).value;
+            window.testPost = async function(endpoint, inputId, respId) {
+                const termo = document.getElementById(inputId)?.value;
                 const respDiv = document.getElementById(respId);
+                
+                if (!respDiv) {
+                    console.error('Elemento não encontrado:', respId);
+                    return;
+                }
                 
                 if (!termo) {
                     respDiv.className = 'response show error';
@@ -405,7 +418,7 @@ Retorna: dados da linha na API externa</pre></div>
                 respDiv.textContent = '⏳ Buscando...';
                 
                 try {
-                    const res = await fetch(endpoint, {
+                    const res = await fetch(endpoint + '?v=' + PAINEL_VERSION, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ termo })
@@ -416,6 +429,78 @@ Retorna: dados da linha na API externa</pre></div>
                 } catch (e) {
                     respDiv.className = 'response show error';
                     respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            };
+
+            window.testConsultarLinha = async function() {
+                const telefone = document.getElementById('in4')?.value.trim();
+                const respDiv = document.getElementById('r8');
+                
+                if (!respDiv) return;
+                
+                if (!telefone) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Digite um telefone';
+                    return;
+                }
+                
+                const telefoneLimpo = telefone.replace(/\D/g, '');
+                
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Consultando API externa...';
+                
+                try {
+                    const res = await fetch('/consultar-linha/' + telefoneLimpo + '?v=' + PAINEL_VERSION);
+                    const data = await res.json();
+                    respDiv.className = 'response show success';
+                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            };
+
+            window.testDeleteRevenda = async function() {
+                const email = document.getElementById('in5')?.value.trim();
+                const respDiv = document.getElementById('r10');
+                
+                if (!respDiv) return;
+                
+                if (!email) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Digite o email da revenda';
+                    return;
+                }
+                
+                if (!confirm('⚠️ Tem certeza que deseja excluir a revenda: ' + email + '?\n\nEsta ação não pode ser desfeita!')) {
+                    return;
+                }
+                
+                respDiv.className = 'response show';
+                respDiv.textContent = '⏳ Excluindo revenda...';
+                
+                try {
+                    const res = await fetch('/revenda/excluir?v=' + PAINEL_VERSION, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: email })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'sucesso') {
+                        respDiv.className = 'response show success';
+                        respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
+                        document.getElementById('in5').value = '';
+                    } else {
+                        respDiv.className = 'response show error';
+                        respDiv.textContent = '❌ ' + JSON.stringify(data, null, 2);
+                    }
+                } catch (e) {
+                    respDiv.className = 'response show error';
+                    respDiv.textContent = '❌ Erro: ' + e.message;
+                }
+            };
+        </script + e.message;
                 }
             }
 
