@@ -670,6 +670,79 @@ def adicionar_revenda(request: RevendaRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
 
+class DeleteRevendaRequest(BaseModel):
+    email: str
+
+@app.delete("/revenda/excluir")
+def excluir_revenda(request: DeleteRevendaRequest):
+    """
+    Exclui uma revenda do arquivo de logins pelo email.
+    Body: { "email": "revenda@email.com" }
+    """
+    LOGINS_FILE = "revendas_logins.json"
+    
+    if not os.path.exists(LOGINS_FILE):
+        return {"status": "erro", "mensagem": "Arquivo de logins não encontrado."}
+    
+    try:
+        with open(LOGINS_FILE, 'r', encoding='utf-8') as f:
+            logins = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao ler arquivo de logins: {e}")
+    
+    # Procura a revenda pelo email
+    revenda_encontrada = None
+    for i, revenda in enumerate(logins):
+        if revenda['email'] == request.email:
+            revenda_encontrada = logins.pop(i)
+            break
+    
+    if not revenda_encontrada:
+        return {"status": "erro", "mensagem": f"Revenda com email {request.email} não encontrada."}
+    
+    # Salva o arquivo atualizado
+    try:
+        with open(LOGINS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(logins, f, indent=4, ensure_ascii=False)
+        
+        # Também remove o arquivo JSON da revenda se existir
+        filename = revenda_encontrada.get('filename')
+        if filename and os.path.exists(filename):
+            os.remove(filename)
+        
+        return {
+            "status": "sucesso", 
+            "mensagem": f"Revenda {revenda_encontrada['nome']} excluída com sucesso.",
+            "revenda_removida": revenda_encontrada
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
+
+@app.get("/revenda/listar")
+def listar_revendas():
+    """
+    Lista todas as revendas cadastradas.
+    """
+    LOGINS_FILE = "revendas_logins.json"
+    
+    if not os.path.exists(LOGINS_FILE):
+        return {"status": "sucesso", "total": 0, "revendas": []}
+    
+    try:
+        with open(LOGINS_FILE, 'r', encoding='utf-8') as f:
+            logins = json.load(f)
+        
+        # Retorna apenas nome e email (não mostra senha)
+        revendas_lista = [{"nome": r["nome"], "email": r["email"], "filename": r["filename"]} for r in logins]
+        
+        return {
+            "status": "sucesso",
+            "total": len(revendas_lista),
+            "revendas": revendas_lista
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao ler arquivo de logins: {e}")
+
 @app.post("/filtrar")
 def filtrar_clientes(request: SearchRequest):
     """
