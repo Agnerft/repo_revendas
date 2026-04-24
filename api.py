@@ -64,6 +64,9 @@ def painel():
     <html lang="pt-BR">
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+        <meta http-equiv="Pragma" content="no-cache">
+        <meta http-equiv="Expires" content="0">
         <title>Painel API - Revendas</title>
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
