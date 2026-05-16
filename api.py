@@ -9,6 +9,7 @@ import unicodedata
 import subprocess
 import sys
 import threading
+import time
 import requests
 from typing import Optional
 
@@ -789,6 +790,14 @@ PAINEL_HTML = '''
                 sample: 'Exemplo: /consultar-linha/5511999999999\\n\\nRetorna dados da linha na API externa.',
                 field: { id: 'linhaTelefone', label: 'Telefone', placeholder: 'Telefone com DDD' },
                 action: { type: 'phone', label: 'Consultar linha', inputId: 'linhaTelefone', responseId: 'r-linha' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer/usuario',
+                description: 'Pesquisa se um usuario existe na base do MaxPlayer.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nBusca por usuario, ID, email ou usuario IPTV vinculado.',
+                field: { id: 'maxplayerUsuario', label: 'Usuario MaxPlayer', placeholder: 'Usuario, telefone, ID ou email' },
+                action: { type: 'postTerm', label: 'Pesquisar MaxPlayer', endpoint: '/maxplayer/usuario', inputId: 'maxplayerUsuario', responseId: 'r-maxplayer' }
             },
             {
                 method: 'GET',
@@ -1681,6 +1690,144 @@ def consultar_linha_externa_get(telefone: str):
             
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=503, detail=f"Erro na API externa: {str(e)}")
+
+# =============================================================================
+# API EXTERNA - MaxPlayer
+# =============================================================================
+
+MAXPLAYER_API_TOKEN = os.getenv("MAXPLAYER_API_TOKEN", "iGQyrhovNMrkrHsPwSbrVtMj")
+MAXPLAYER_USERS_URL = "https://api.maxplayer.tv/v3/api/public/users"
+MAXPLAYER_CACHE_SECONDS = 60
+maxplayer_cache = {
+    "loaded_at": 0,
+    "users": None
+}
+maxplayer_cache_lock = threading.Lock()
+
+def get_maxplayer_users(force_refresh=False):
+    now = time.time()
+
+    with maxplayer_cache_lock:
+        users = maxplayer_cache["users"]
+        loaded_at = maxplayer_cache["loaded_at"]
+        if users is not None and not force_refresh and now - loaded_at < MAXPLAYER_CACHE_SECONDS:
+            return users, True
+
+    headers = {
+        "Api-Token": MAXPLAYER_API_TOKEN,
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+
+    try:
+        response = requests.get(MAXPLAYER_USERS_URL, headers=headers, timeout=45)
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no MaxPlayer: {str(e)}")
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"MaxPlayer retornou HTTP {response.status_code}: {response.text[:300]}"
+        )
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="MaxPlayer retornou uma resposta que nao e JSON valido.")
+
+    if not isinstance(data, list):
+        raise HTTPException(status_code=502, detail="Resposta inesperada do MaxPlayer: era esperado uma lista de usuarios.")
+
+    with maxplayer_cache_lock:
+        maxplayer_cache["users"] = data
+        maxplayer_cache["loaded_at"] = time.time()
+
+    return data, False
+
+def normalize_search_value(value):
+    return str(value or "").strip().lower()
+
+def maxplayer_user_matches(user, termo):
+    termo = normalize_search_value(termo)
+    termo_numerico = re.sub(r"[^\d]", "", termo)
+
+    candidates = [
+        user.get("id"),
+        user.get("username"),
+        user.get("email")
+    ]
+
+    for item in user.get("lists") or []:
+        candidates.extend([
+            item.get("id"),
+            item.get("name")
+        ])
+        iptv_info = item.get("iptv_info") or {}
+        candidates.extend([
+            iptv_info.get("username"),
+            iptv_info.get("password"),
+            iptv_info.get("fqdn")
+        ])
+
+    for candidate in candidates:
+        value = normalize_search_value(candidate)
+        if not value:
+            continue
+
+        value_numerico = re.sub(r"[^\d]", "", value)
+        if termo == value or termo in value:
+            return True
+        if termo_numerico and (termo_numerico == value_numerico or termo_numerico in value_numerico):
+            return True
+
+    return False
+
+def format_maxplayer_user(user):
+    lists = []
+    for item in user.get("lists") or []:
+        iptv_info = item.get("iptv_info") or {}
+        lists.append({
+            "id": item.get("id"),
+            "nome": item.get("name"),
+            "dominio_id": item.get("domain_id"),
+            "iptv": {
+                "tipo": iptv_info.get("type"),
+                "fqdn": iptv_info.get("fqdn"),
+                "porta": iptv_info.get("port"),
+                "ssl": iptv_info.get("ssl"),
+                "usuario": iptv_info.get("username"),
+                "senha": iptv_info.get("password")
+            }
+        })
+
+    return {
+        "id": user.get("id"),
+        "usuario": user.get("username"),
+        "email": user.get("email"),
+        "listas": lists
+    }
+
+@app.post("/maxplayer/usuario")
+def pesquisar_usuario_maxplayer(request: SearchRequest):
+    termo = request.termo.strip()
+    if not termo:
+        raise HTTPException(status_code=400, detail="Usuario nao informado")
+
+    users, from_cache = get_maxplayer_users()
+    encontrados = [format_maxplayer_user(user) for user in users if maxplayer_user_matches(user, termo)]
+
+    return {
+        "status": "sucesso" if encontrados else "nao_encontrado",
+        "termo_buscado": termo,
+        "total_base": len(users),
+        "total_encontrado": len(encontrados),
+        "cache": "sim" if from_cache else "nao",
+        "usuarios": encontrados[:20],
+        "mensagem": "Usuario encontrado no MaxPlayer." if encontrados else "Nenhum usuario encontrado no MaxPlayer com este termo."
+    }
+
+@app.get("/maxplayer/usuario/{usuario}")
+def pesquisar_usuario_maxplayer_get(usuario: str):
+    return pesquisar_usuario_maxplayer(SearchRequest(termo=usuario))
 
 if __name__ == "__main__":
     import uvicorn
