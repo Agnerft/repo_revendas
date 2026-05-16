@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Painel de Revendas</title>
+    <link rel="stylesheet" href="/static/painel.css">
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">RV</div>
+                <div>
+                    <h2 class="brand-title">Revendas API</h2>
+                    <p class="brand-subtitle">Painel operacional</p>
+                </div>
+            </div>
+
+            <div class="nav-label">Filtros</div>
+            <nav class="nav" id="navFilters">
+                <button class="active" data-filter="all">Todos <span class="nav-count" id="countAll">0</span></button>
+                <button data-filter="GET">GET <span class="nav-count" id="countGet">0</span></button>
+                <button data-filter="POST">POST <span class="nav-count" id="countPost">0</span></button>
+                <button data-filter="DELETE">DELETE <span class="nav-count" id="countDelete">0</span></button>
+            </nav>
+
+            <div class="side-note">
+                Use este painel para consultar clientes, listar revendas, recarregar a planilha e acompanhar atualizacoes sem abrir o Postman.
+            </div>
+        </aside>
+
+        <main>
+            <section class="topbar">
+                <div>
+                    <h1>Consulta de cliente</h1>
+                    <p class="lead">Pesquise uma vez e veja o retorno da base de linhas e do MaxPlayer no mesmo lugar.</p>
+                </div>
+                <div class="toolbar">
+                    <button class="btn theme-toggle" id="themeToggleBtn">Modo escuro</button>
+                    <button class="btn" id="toggleEndpointsBtn">Endpoints</button>
+                    <button class="btn" id="refreshStatusBtn">Atualizar status</button>
+                    <button class="btn primary" id="runUpdateBtn">Atualizar dados</button>
+                </div>
+            </section>
+
+            <section class="unified">
+                <h2 class="unified-title">Pesquisa unificada</h2>
+                <p class="unified-text">Digite telefone, usuario, ID ou email. Para a base de linhas, a busca usa apenas os numeros do telefone.</p>
+                <form class="unified-form" id="clientSearchForm">
+                    <input class="unified-input" id="clientSearchInput" type="search" placeholder="Ex: 5521999999999 ou usuario MaxPlayer" autocomplete="off">
+                    <button class="btn primary" id="clientSearchButton" type="submit">Pesquisar</button>
+                </form>
+                <div class="results" id="clientResults">
+                    <article class="result-card" id="resellerResult"></article>
+                    <article class="result-card" id="lineResult"></article>
+                    <article class="result-card" id="maxplayerResult"></article>
+                </div>
+            </section>
+
+            <section class="status-grid">
+                <article class="stat">
+                    <div class="stat-label">Registros</div>
+                    <div class="stat-value" id="totalRegs">-</div>
+                    <div class="stat-helper">Carregados do Excel</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">Endpoints</div>
+                    <div class="stat-value" id="endpointTotal">-</div>
+                    <div class="stat-helper">Disponiveis neste painel</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">API</div>
+                    <div class="stat-value" id="apiState">-</div>
+                    <div class="stat-helper" id="apiMessage">Verificando...</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">Atualizacao</div>
+                    <div class="stat-value" id="updateState">Idle</div>
+                    <div class="stat-helper" id="updateMessage">Nenhuma execucao ativa</div>
+                </article>
+            </section>
+
+            <section class="workspace">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Endpoints</h2>
+                        <input class="search" id="searchInput" type="search" placeholder="Buscar endpoint ou descricao">
+                    </div>
+                    <div class="endpoint-list" id="endpointList"></div>
+                    <div class="empty" id="emptyState" hidden>Nenhum endpoint encontrado.</div>
+                </div>
+
+                <aside class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Execucao recente</h2>
+                    </div>
+                    <div class="quick-card">
+                        <p class="quick-title">Status do atualizador</p>
+                        <p class="quick-text">Ao iniciar a atualizacao, o painel acompanha o processo em segundo plano e mostra o retorno mais recente.</p>
+                        <pre class="update-log" id="updateLog">Aguardando acao.</pre>
+                    </div>
+                </aside>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/painel.js"></script>
+</body>
+</html>

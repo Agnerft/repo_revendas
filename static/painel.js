@@ -1,0 +1,799 @@
+const VERSION = '3.0';
+        const endpoints = [
+            {
+                method: 'GET',
+                path: '/status',
+                description: 'Retorna o status da API e o total de registros carregados.',
+                sample: '{\\n  "message": "API de Busca de Clientes Ativa",\\n  "total_registros": 42860\\n}',
+                action: { type: 'request', label: 'Testar', endpoint: '/status', responseId: 'r-status' }
+            },
+            {
+                method: 'GET',
+                path: '/config/status',
+                description: 'Mostra se tokens, painel, cache e arquivos principais estao configurados.',
+                sample: '{\\n  "tokens": { "painel_best": true, "maxplayer_panel": true }\\n}',
+                action: { type: 'request', label: 'Ver configuracao', endpoint: '/config/status', responseId: 'r-config-status' }
+            },
+            {
+                method: 'GET',
+                path: '/historico/acoes',
+                description: 'Lista as ultimas acoes sensiveis executadas pelo painel.',
+                sample: 'Retorna criacoes e trocas de dominio do MaxPlayer com dados sensiveis mascarados.',
+                action: { type: 'request', label: 'Ver historico', endpoint: '/historico/acoes', responseId: 'r-action-history' }
+            },
+            {
+                method: 'POST',
+                path: '/buscar',
+                description: 'Busca um cliente em todas as colunas pelo termo informado.',
+                sample: 'Body: { "termo": "+5551999999999" }\\n\\nRetorna o primeiro cliente encontrado.',
+                field: { id: 'buscarTermo', label: 'Termo de busca', placeholder: 'Telefone, nome ou ID' },
+                action: { type: 'postTerm', label: 'Buscar', endpoint: '/buscar', inputId: 'buscarTermo', responseId: 'r-buscar' }
+            },
+            {
+                method: 'POST',
+                path: '/filtrar',
+                description: 'Retorna uma lista com todos os clientes encontrados. Bom para busca por data.',
+                sample: 'Body: { "termo": "19/08/2025" }\\n\\nRetorna: [ { ... }, { ... } ]',
+                field: { id: 'filtrarTermo', label: 'Filtro', placeholder: 'Data, nome, telefone ou termo' },
+                action: { type: 'postTerm', label: 'Filtrar', endpoint: '/filtrar', inputId: 'filtrarTermo', responseId: 'r-filtrar' }
+            },
+            {
+                method: 'POST',
+                path: '/cliente/consulta',
+                description: 'Consulta revendas, link de pagamento, linhas e MaxPlayer em uma unica pesquisa.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nRetorna: revenda, linha e maxplayer.',
+                field: { id: 'consultaUnificadaTermo', label: 'Termo', placeholder: 'Telefone, usuario, ID ou email' },
+                action: { type: 'postTerm', label: 'Consultar tudo', endpoint: '/cliente/consulta', inputId: 'consultaUnificadaTermo', responseId: 'r-consulta-unificada' }
+            },
+            {
+                method: 'GET',
+                path: '/reload',
+                description: 'Recarrega os dados do Excel sem reiniciar o servidor.',
+                sample: '{\\n  "message": "Dados recarregados.",\\n  "total_registros": 42860\\n}',
+                action: { type: 'request', label: 'Recarregar', endpoint: '/reload', responseId: 'r-reload' }
+            },
+            {
+                method: 'POST',
+                path: '/atualizar',
+                description: 'Executa o script update_all_revendas.py para atualizar todos os dados.',
+                sample: '{\\n  "message": "Atualizacao iniciada em segundo plano",\\n  "status_url": "/atualizar/status"\\n}',
+                action: { type: 'update', label: 'Atualizar dados', responseId: 'r-atualizar' }
+            },
+            {
+                method: 'GET',
+                path: '/atualizar/status',
+                description: 'Consulta o andamento da atualizacao em segundo plano.',
+                sample: '{\\n  "running": false,\\n  "status": "success",\\n  "message": "Atualizado com sucesso"\\n}',
+                action: { type: 'request', label: 'Ver status', endpoint: '/atualizar/status', responseId: 'r-atualizar-status' }
+            },
+            {
+                method: 'GET',
+                path: '/revenda/adicionar',
+                description: 'Mostra a documentacao para adicionar uma nova revenda.',
+                sample: 'Retorna instrucoes de uso do POST /revenda/adicionar.',
+                action: { type: 'request', label: 'Ver instrucoes', endpoint: '/revenda/adicionar', responseId: 'r-add-doc' }
+            },
+            {
+                method: 'POST',
+                path: '/revenda/adicionar',
+                description: 'Adiciona uma nova revenda ao arquivo de logins.',
+                sample: 'Body: {\\n  "nome": "Revenda XYZ",\\n  "email": "revenda@email.com",\\n  "password": "senha123",\\n  "filename": "opcional.json"\\n}',
+                action: { type: 'manual', label: 'Usar via API', responseId: 'r-add' }
+            },
+            {
+                method: 'POST',
+                path: '/ (alias)',
+                description: 'Alias para /buscar. Busca cliente pelo termo enviado.',
+                sample: 'Body: { "termo": "valor" }\\n\\nRetorna o cliente encontrado.',
+                field: { id: 'aliasTermo', label: 'Termo', placeholder: 'Digite o termo de busca' },
+                action: { type: 'postTerm', label: 'Testar alias', endpoint: '/', inputId: 'aliasTermo', responseId: 'r-alias' }
+            },
+            {
+                method: 'GET',
+                path: '/consultar-linha/{telefone}',
+                description: 'Consulta API externa de linhas pelo numero de telefone.',
+                sample: 'Exemplo: /consultar-linha/5511999999999\\n\\nRetorna dados da linha na API externa.',
+                field: { id: 'linhaTelefone', label: 'Telefone', placeholder: 'Telefone com DDD' },
+                action: { type: 'phone', label: 'Consultar linha', inputId: 'linhaTelefone', responseId: 'r-linha' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer/usuario',
+                description: 'Pesquisa se um usuario existe na base do MaxPlayer.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nBusca por usuario, ID, email ou usuario IPTV vinculado.',
+                field: { id: 'maxplayerUsuario', label: 'Usuario MaxPlayer', placeholder: 'Usuario, telefone, ID ou email' },
+                action: { type: 'postTerm', label: 'Pesquisar MaxPlayer', endpoint: '/maxplayer/usuario', inputId: 'maxplayerUsuario', responseId: 'r-maxplayer' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer/usuario/prevalidar',
+                description: 'Valida se ha dados suficientes para criar um usuario MaxPlayer.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nRetorna se pode criar e quais dados serao usados.',
+                field: { id: 'prevalidarMaxplayer', label: 'Termo', placeholder: 'Telefone ou usuario' },
+                action: { type: 'postTerm', label: 'Prevalidar', endpoint: '/maxplayer/usuario/prevalidar', inputId: 'prevalidarMaxplayer', responseId: 'r-max-prevalidar' }
+            },
+            {
+                method: 'GET',
+                path: '/maxplayer/domains',
+                description: 'Lista os dominios configurados no MaxPlayer.',
+                sample: 'Retorna: { "domains": [ { "id": "...", "domain": "..." } ] }',
+                action: { type: 'request', label: 'Listar dominios', endpoint: '/maxplayer/domains', responseId: 'r-max-domains' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer/lista/dominio',
+                description: 'Troca o dominio de uma lista MaxPlayer.',
+                sample: 'Body: { "list_id": "...", "domain_id": "...", "new_list_name": "List 1", "iptv_username": "...", "iptv_password": "..." }',
+                action: { type: 'manual', label: 'Usar pela busca', responseId: 'r-max-edit-domain' }
+            },
+            {
+                method: 'GET',
+                path: '/revenda/listar',
+                description: 'Lista todas as revendas cadastradas com total de clientes.',
+                sample: '{\\n  "total": 5,\\n  "revendas": [\\n    { "nome": "...", "email": "...", "total_clientes": 150 }\\n  ]\\n}',
+                action: { type: 'request', label: 'Listar revendas', endpoint: '/revenda/listar', responseId: 'r-listar' }
+            },
+            {
+                method: 'DELETE',
+                path: '/revenda/excluir',
+                description: 'Exclui uma revenda pelo email e remove o arquivo JSON relacionado.',
+                sample: 'Body: { "email": "revenda@email.com" }\\n\\nAtencao: esta acao nao pode ser desfeita.',
+                field: { id: 'deleteEmail', label: 'Email da revenda', placeholder: 'revenda@email.com', type: 'email' },
+                action: { type: 'delete', label: 'Excluir revenda', inputId: 'deleteEmail', responseId: 'r-delete' }
+            }
+        ];
+
+        let activeFilter = 'all';
+        let updateTimer = null;
+        let lastUnifiedData = null;
+        let maxplayerDomains = [];
+
+        const endpointList = document.getElementById('endpointList');
+        const emptyState = document.getElementById('emptyState');
+        const searchInput = document.getElementById('searchInput');
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function setResponse(id, state, message) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = 'response show ' + state;
+            el.textContent = message;
+        }
+
+        async function requestJson(endpoint, options = {}) {
+            const separator = endpoint.includes('?') ? '&' : '?';
+            const response = await fetch(endpoint + separator + 'v=' + VERSION, options);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(JSON.stringify(data, null, 2));
+            }
+            return data;
+        }
+
+        function pretty(data) {
+            return JSON.stringify(data, null, 2);
+        }
+
+        function normalizeStatus(status) {
+            if (status === 'sucesso') return { label: 'Encontrado', className: 'ok' };
+            if (status === 'erro') return { label: 'Erro', className: 'err' };
+            if (status === 'ignorado') return { label: 'Ignorado', className: 'warn' };
+            return { label: 'Nao encontrado', className: 'warn' };
+        }
+
+        function emptyValue(value) {
+            return value === undefined || value === null || value === '' ? 'N/A' : value;
+        }
+
+        function formatTrialValue(value) {
+            const normalized = String(value || '').toLowerCase();
+            return normalized.includes('sim') ? 'Teste' : 'Cliente';
+        }
+
+        function copyIcon(label = 'Copiar link') {
+            return `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                </svg>
+                <span class="sr-only">${escapeHtml(label)}</span>`;
+        }
+
+        function checkIcon() {
+            return `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                <span class="sr-only">Copiado</span>`;
+        }
+
+        async function copyText(value) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(value);
+                return;
+            }
+
+            const area = document.createElement('textarea');
+            area.value = value;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.left = '-9999px';
+            area.style.top = '0';
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            const ok = document.execCommand('copy');
+            area.remove();
+            if (!ok) {
+                throw new Error('copy_failed');
+            }
+        }
+
+        function dataRows(rows) {
+            return `
+                <div class="data-grid">
+                    ${rows.map((row) => `
+                        <div class="data-row">
+                            <div class="data-label">${escapeHtml(row[0])}</div>
+                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `
+                                <div class="link-actions">
+                                    <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
+                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}" title="Copiar link" aria-label="Copiar link">${copyIcon()}</button>
+                                </div>` : escapeHtml(emptyValue(row[1]))}</div>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        function renderResultCard(targetId, title, status, rows, emptyMessage, rawData) {
+            const target = document.getElementById(targetId);
+            const badge = normalizeStatus(status);
+            const rawId = targetId + '-raw';
+            target.innerHTML = `
+                <div class="result-head">
+                    <h3 class="result-title">${escapeHtml(title)}</h3>
+                    <span class="badge ${badge.className}">${escapeHtml(badge.label)}</span>
+                </div>
+                ${rows.length ? dataRows(rows) : `<p class="empty-result">${escapeHtml(emptyMessage)}</p>`}
+                <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
+                <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
+            `;
+        }
+
+        function domainOptions(selectedId = '') {
+            if (!maxplayerDomains.length) {
+                return '<option value="">Carregando dominios...</option>';
+            }
+
+            return [
+                '<option value="">Selecione um dominio</option>',
+                ...maxplayerDomains.map((domain) => {
+                    const label = `${domain.domain}${domain.label ? ' - ' + domain.label : ''} (${domain.https ? 'HTTPS' : 'HTTP'}:${domain.port || '80'})`;
+                    const selected = String(domain.id) === String(selectedId) ? ' selected' : '';
+                    return `<option value="${escapeHtml(domain.id)}"${selected}>${escapeHtml(label)}</option>`;
+                })
+            ].join('');
+        }
+
+        async function loadMaxplayerDomains() {
+            try {
+                const data = await requestJson('/maxplayer/domains');
+                maxplayerDomains = data.domains || [];
+                document.querySelectorAll('select[data-domain-select]').forEach((select) => {
+                    const selected = select.dataset.selected || select.value;
+                    select.innerHTML = domainOptions(selected);
+                    select.value = selected;
+                });
+            } catch (error) {
+                maxplayerDomains = [];
+            }
+        }
+
+        function maxplayerCreateForm(data) {
+            const linha = data.linha?.linha || {};
+            const termo = data.telefone_normalizado || data.termo_buscado || '';
+            const iptvUser = linha.usuario && linha.usuario !== 'N/A' ? linha.usuario : termo;
+            const iptvPass = linha.senha && linha.senha !== 'N/A' ? linha.senha : '';
+            const disabled = iptvUser && iptvPass ? '' : ' disabled';
+            const hint = iptvUser && iptvPass ? '' : '<p class="empty-result">Para criar, preciso encontrar usuario e senha na base de linhas.</p>';
+
+            return `
+                <div class="inline-form">
+                    <label for="createMaxDomain">Dominio para criar</label>
+                    <select id="createMaxDomain" data-domain-select>${domainOptions('')}</select>
+                    <input id="createMaxUser" value="${escapeHtml(iptvUser)}" placeholder="Usuario IPTV">
+                    <input id="createMaxPass" value="${escapeHtml(iptvPass)}" placeholder="Senha IPTV">
+                    ${hint}
+                    <button class="btn primary" type="button" data-create-maxplayer${disabled}>Criar no MaxPlayer</button>
+                </div>`;
+        }
+
+        function maxplayerDomainForm(user) {
+            const list = (user.listas || [])[0] || {};
+            const iptv = list.iptv || {};
+            if (!list.id || !iptv.usuario || !iptv.senha) {
+                return '';
+            }
+
+            return `
+                <div class="inline-form">
+                    <label for="editMaxDomain">Trocar dominio</label>
+                    <select id="editMaxDomain" data-domain-select data-selected="${escapeHtml(list.dominio_id || '')}">${domainOptions(list.dominio_id || '')}</select>
+                    <button class="btn primary" type="button"
+                        data-edit-max-domain
+                        data-list-id="${escapeHtml(list.id)}"
+                        data-list-name="${escapeHtml(list.nome || 'List 1')}"
+                        data-iptv-user="${escapeHtml(iptv.usuario)}"
+                        data-iptv-pass="${escapeHtml(iptv.senha)}">
+                        Salvar dominio
+                    </button>
+                </div>`;
+        }
+
+        function renderResellerResult(data) {
+            const revenda = data.revenda || {};
+            const rows = revenda.status === 'sucesso' ? [
+                ['Cliente', revenda.nome],
+                ['Telefone', revenda.telefone],
+                ['Revenda', revenda.Revenda],
+                ['Plano', revenda.plano],
+                ['Vencimento', revenda.data_expiracao],
+                ['ID cliente', revenda.Id_client],
+                ['DT Row', revenda.DT_RowId],
+                ['Pagamento', revenda.Link, 'link']
+            ] : [];
+
+            renderResultCard(
+                'resellerResult',
+                'Revenda e pagamento',
+                revenda.status,
+                rows,
+                revenda.mensagem || 'Nenhum cadastro encontrado na base das revendas.',
+                revenda
+            );
+        }
+
+        function renderLineResult(data) {
+            const linha = data.linha || {};
+            const detalhe = linha.linha || {};
+            const rows = linha.status === 'sucesso' ? [
+                ['Telefone', detalhe.telefone],
+                ['Usuario', detalhe.usuario],
+                ['Senha', detalhe.senha],
+                ['Vencimento', detalhe.vencimento],
+                ['Dias restantes', detalhe.dias_restantes],
+                ['Status', detalhe.status_conta],
+                ['Tipo', formatTrialValue(detalhe.e_teste)],
+                ['Revenda', detalhe.revenda]
+            ] : [];
+
+            renderResultCard(
+                'lineResult',
+                'Base de linhas',
+                linha.status,
+                rows,
+                linha.mensagem || 'Nenhuma linha encontrada com este telefone.',
+                linha
+            );
+        }
+
+        function renderMaxplayerResult(data) {
+            const maxplayer = data.maxplayer || {};
+            const user = (maxplayer.usuarios || [])[0] || {};
+            const list = (user.listas || [])[0] || {};
+            const iptv = list.iptv || {};
+            const rows = maxplayer.status === 'sucesso' ? [
+                ['Usuario', user.usuario],
+                ['ID', user.id],
+                ['Email', user.email],
+                ['Lista', list.nome],
+                ['Dominio', iptv.fqdn],
+                ['Porta', iptv.porta],
+                ['Usuario IPTV', iptv.usuario],
+                ['Senha IPTV', iptv.senha],
+                ['Encontrados', maxplayer.total_encontrado],
+                ['Cache', maxplayer.cache]
+            ] : [];
+
+            renderResultCard(
+                'maxplayerResult',
+                'MaxPlayer',
+                maxplayer.status,
+                rows,
+                maxplayer.mensagem || 'Nenhum usuario encontrado no MaxPlayer.',
+                maxplayer
+            );
+
+            if (maxplayer.status === 'sucesso') {
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerDomainForm(user));
+            } else {
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerCreateForm(data));
+            }
+        }
+
+        async function runUnifiedSearch(term) {
+            const button = document.getElementById('clientSearchButton');
+            const results = document.getElementById('clientResults');
+
+            button.disabled = true;
+            button.textContent = 'Pesquisando...';
+            results.classList.add('show');
+            renderResultCard('resellerResult', 'Revenda e pagamento', 'ignorado', [], 'Consultando base das revendas...', {});
+            renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
+            renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
+
+            try {
+                const data = await requestJson('/cliente/consulta', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ termo: term })
+                });
+                lastUnifiedData = data;
+                renderResellerResult(data);
+                renderLineResult(data);
+                renderMaxplayerResult(data);
+                loadMaxplayerDomains();
+            } catch (error) {
+                renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
+                renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
+                renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Pesquisar';
+            }
+        }
+
+        async function runRequest(action, method = 'GET') {
+            setResponse(action.responseId, 'loading', 'Carregando...');
+            try {
+                const data = await requestJson(action.endpoint, { method });
+                setResponse(action.responseId, 'success', pretty(data));
+                if (action.endpoint === '/status' || action.endpoint === '/reload') {
+                    await loadStats();
+                }
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runPostTerm(action) {
+            const value = document.getElementById(action.inputId).value.trim();
+            if (!value) {
+                setResponse(action.responseId, 'error', 'Digite um termo para continuar.');
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Buscando...');
+            try {
+                const data = await requestJson(action.endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ termo: value })
+                });
+                setResponse(action.responseId, 'success', pretty(data));
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runPhone(action) {
+            const value = document.getElementById(action.inputId).value.trim();
+            const phone = value.replace(/\\D/g, '');
+            if (!phone) {
+                setResponse(action.responseId, 'error', 'Digite um telefone para continuar.');
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Consultando linha...');
+            try {
+                const data = await requestJson('/consultar-linha/' + phone);
+                setResponse(action.responseId, 'success', pretty(data));
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runDelete(action) {
+            const email = document.getElementById(action.inputId).value.trim();
+            if (!email) {
+                setResponse(action.responseId, 'error', 'Digite o email da revenda.');
+                return;
+            }
+            if (!confirm('Tem certeza que deseja excluir a revenda ' + email + '?\\n\\nEsta acao nao pode ser desfeita.')) {
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Excluindo revenda...');
+            try {
+                const data = await requestJson('/revenda/excluir', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                setResponse(action.responseId, data.status === 'sucesso' ? 'success' : 'error', pretty(data));
+                if (data.status === 'sucesso') {
+                    document.getElementById(action.inputId).value = '';
+                }
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runUpdate(action) {
+            setResponse(action.responseId, 'loading', 'Iniciando atualizacao...');
+            try {
+                const data = await requestJson('/atualizar', { method: 'POST' });
+                setResponse(action.responseId, 'success', pretty(data));
+                document.getElementById('updateLog').textContent = pretty(data);
+                await pollUpdateStatus(true);
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+                await pollUpdateStatus(false);
+            }
+        }
+
+        function runManual(action) {
+            setResponse(action.responseId, 'loading', 'Este endpoint precisa de nome, email, senha e filename opcional. Use um cliente HTTP para enviar o JSON completo.');
+        }
+
+        async function handleAction(action) {
+            if (action.type === 'request') return runRequest(action);
+            if (action.type === 'postTerm') return runPostTerm(action);
+            if (action.type === 'phone') return runPhone(action);
+            if (action.type === 'delete') return runDelete(action);
+            if (action.type === 'update') return runUpdate(action);
+            return runManual(action);
+        }
+
+        function renderEndpoints() {
+            const term = searchInput.value.trim().toLowerCase();
+            const visible = endpoints.filter((item) => {
+                const matchesFilter = activeFilter === 'all' || item.method === activeFilter;
+                const content = (item.method + ' ' + item.path + ' ' + item.description).toLowerCase();
+                return matchesFilter && content.includes(term);
+            });
+
+            endpointList.innerHTML = visible.map((item, index) => {
+                const field = item.field ? `
+                    <div class="field">
+                        <label for="${item.field.id}">${escapeHtml(item.field.label)}</label>
+                        <input id="${item.field.id}" type="${item.field.type || 'text'}" placeholder="${escapeHtml(item.field.placeholder)}">
+                    </div>` : '';
+                return `
+                    <article class="endpoint-card" data-index="${endpoints.indexOf(item)}">
+                        <div class="endpoint-main">
+                            <span class="method ${item.method.toLowerCase()}">${item.method}</span>
+                            <div>
+                                <h3 class="endpoint-path">${escapeHtml(item.path)}</h3>
+                                <p class="endpoint-desc">${escapeHtml(item.description)}</p>
+                            </div>
+                            <button class="btn" data-toggle="${index}">Detalhes</button>
+                        </div>
+                        <div class="endpoint-body">
+                            <pre>${escapeHtml(item.sample)}</pre>
+                            ${field}
+                            <div class="actions">
+                                <button class="btn ${item.method === 'DELETE' ? 'danger' : 'primary'}" data-action-index="${endpoints.indexOf(item)}">${escapeHtml(item.action.label)}</button>
+                            </div>
+                            <div class="response" id="${item.action.responseId}"></div>
+                        </div>
+                    </article>`;
+            }).join('');
+
+            emptyState.hidden = visible.length !== 0;
+            document.getElementById('endpointTotal').textContent = endpoints.length;
+        }
+
+        function updateCounts() {
+            document.getElementById('countAll').textContent = endpoints.length;
+            document.getElementById('countGet').textContent = endpoints.filter((item) => item.method === 'GET').length;
+            document.getElementById('countPost').textContent = endpoints.filter((item) => item.method === 'POST').length;
+            document.getElementById('countDelete').textContent = endpoints.filter((item) => item.method === 'DELETE').length;
+        }
+
+        async function loadStats() {
+            try {
+                const data = await requestJson('/status');
+                document.getElementById('totalRegs').textContent = Number(data.total_registros || 0).toLocaleString('pt-BR');
+                document.getElementById('apiState').textContent = 'Online';
+                document.getElementById('apiMessage').textContent = data.message || 'API respondendo';
+            } catch (error) {
+                document.getElementById('totalRegs').textContent = '?';
+                document.getElementById('apiState').textContent = 'Erro';
+                document.getElementById('apiMessage').textContent = 'Nao foi possivel consultar /status';
+            }
+        }
+
+        async function pollUpdateStatus(keepPolling) {
+            try {
+                const data = await requestJson('/atualizar/status');
+                document.getElementById('updateState').textContent = data.running ? 'Rodando' : (data.status || 'Idle');
+                document.getElementById('updateMessage').textContent = data.message || 'Sem detalhes';
+                document.getElementById('updateLog').textContent = pretty(data);
+
+                if (data.running || keepPolling) {
+                    window.clearTimeout(updateTimer);
+                    updateTimer = window.setTimeout(() => pollUpdateStatus(false), 2500);
+                } else if (data.status === 'success') {
+                    await loadStats();
+                }
+            } catch (error) {
+                document.getElementById('updateState').textContent = 'Erro';
+                document.getElementById('updateMessage').textContent = 'Falha ao consultar status';
+                document.getElementById('updateLog').textContent = error.message;
+            }
+        }
+
+        document.getElementById('navFilters').addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-filter]');
+            if (!button) return;
+            activeFilter = button.dataset.filter;
+            document.querySelectorAll('#navFilters button').forEach((item) => item.classList.toggle('active', item === button));
+            renderEndpoints();
+        });
+
+        document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const term = document.getElementById('clientSearchInput').value.trim();
+            if (!term) {
+                document.getElementById('clientSearchInput').focus();
+                return;
+            }
+            await runUnifiedSearch(term);
+        });
+
+        document.getElementById('themeToggleBtn').addEventListener('click', () => {
+            const isDark = document.body.classList.toggle('theme-dark');
+            localStorage.setItem('painel-theme', isDark ? 'dark' : 'light');
+            document.getElementById('themeToggleBtn').textContent = isDark ? 'Modo claro' : 'Modo escuro';
+        });
+
+        document.getElementById('toggleEndpointsBtn').addEventListener('click', () => {
+            const workspace = document.querySelector('.workspace');
+            const isOpen = workspace.classList.toggle('show');
+            document.getElementById('toggleEndpointsBtn').textContent = isOpen ? 'Ocultar endpoints' : 'Endpoints';
+            if (isOpen) {
+                workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+
+        document.addEventListener('click', (event) => {
+            const copyButton = event.target.closest('button[data-copy-link]');
+            if (copyButton) {
+                const link = copyButton.dataset.copyLink;
+                copyText(link).then(() => {
+                    const original = copyButton.innerHTML;
+                    copyButton.innerHTML = checkIcon();
+                    copyButton.classList.add('copied');
+                    window.setTimeout(() => {
+                        copyButton.innerHTML = original;
+                        copyButton.classList.remove('copied');
+                    }, 1400);
+                }).catch(() => {
+                    alert('Nao foi possivel copiar automaticamente. Link: ' + link);
+                });
+                return;
+            }
+
+            const createButton = event.target.closest('button[data-create-maxplayer]');
+            if (createButton) {
+                const domainId = document.getElementById('createMaxDomain')?.value;
+                const iptvUser = document.getElementById('createMaxUser')?.value.trim();
+                const iptvPass = document.getElementById('createMaxPass')?.value.trim();
+                if (!domainId || !iptvUser || !iptvPass) {
+                    alert('Selecione um dominio e confirme usuario/senha IPTV.');
+                    return;
+                }
+                if (!confirm('Criar este usuario no MaxPlayer com o dominio selecionado?')) {
+                    return;
+                }
+                createButton.disabled = true;
+                createButton.textContent = 'Criando...';
+                requestJson('/maxplayer/usuario/criar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain_id: domainId,
+                        iptv_user: iptvUser,
+                        iptv_pass: iptvPass,
+                        username: iptvUser,
+                        user_password: iptvPass
+                    })
+                }).then(() => {
+                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || iptvUser);
+                }).catch((error) => {
+                    alert(error.message);
+                }).finally(() => {
+                    createButton.disabled = false;
+                    createButton.textContent = 'Criar no MaxPlayer';
+                });
+                return;
+            }
+
+            const editButton = event.target.closest('button[data-edit-max-domain]');
+            if (editButton) {
+                const domainId = document.getElementById('editMaxDomain')?.value;
+                if (!domainId) {
+                    alert('Selecione um dominio.');
+                    return;
+                }
+                if (!confirm('Trocar o dominio desta lista no MaxPlayer?')) {
+                    return;
+                }
+                editButton.disabled = true;
+                editButton.textContent = 'Salvando...';
+                requestJson('/maxplayer/lista/dominio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        list_id: editButton.dataset.listId,
+                        domain_id: domainId,
+                        new_list_name: editButton.dataset.listName || 'List 1',
+                        iptv_username: editButton.dataset.iptvUser,
+                        iptv_password: editButton.dataset.iptvPass
+                    })
+                }).then(() => {
+                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || editButton.dataset.iptvUser);
+                }).catch((error) => {
+                    alert(error.message);
+                }).finally(() => {
+                    editButton.disabled = false;
+                    editButton.textContent = 'Salvar dominio';
+                });
+                return;
+            }
+
+            const rawButton = event.target.closest('button[data-raw-target]');
+            if (!rawButton) return;
+            const target = document.getElementById(rawButton.dataset.rawTarget);
+            if (!target) return;
+            const isOpen = target.classList.toggle('show');
+            rawButton.textContent = isOpen ? 'Ocultar JSON' : 'Ver JSON';
+        });
+
+        endpointList.addEventListener('click', async (event) => {
+            const toggle = event.target.closest('button[data-toggle]');
+            if (toggle) {
+                const card = toggle.closest('.endpoint-card');
+                const open = card.classList.toggle('open');
+                toggle.textContent = open ? 'Ocultar' : 'Detalhes';
+                return;
+            }
+
+            const actionButton = event.target.closest('button[data-action-index]');
+            if (actionButton) {
+                const endpoint = endpoints[Number(actionButton.dataset.actionIndex)];
+                await handleAction(endpoint.action);
+            }
+        });
+
+        searchInput.addEventListener('input', renderEndpoints);
+        document.getElementById('refreshStatusBtn').addEventListener('click', async () => {
+            await loadStats();
+            await pollUpdateStatus(false);
+        });
+        document.getElementById('runUpdateBtn').addEventListener('click', () => {
+            const action = endpoints.find((item) => item.path === '/atualizar').action;
+            const card = document.querySelector(`[data-index="${endpoints.findIndex((item) => item.path === '/atualizar')}"]`);
+            if (card && !card.classList.contains('open')) {
+                card.classList.add('open');
+                card.querySelector('button[data-toggle]').textContent = 'Ocultar';
+            }
+            handleAction(action);
+        });
+
+        updateCounts();
+        renderEndpoints();
+        if (localStorage.getItem('painel-theme') === 'dark') {
+            document.body.classList.add('theme-dark');
+            document.getElementById('themeToggleBtn').textContent = 'Modo claro';
+        }
+        loadStats();
+        pollUpdateStatus(false);

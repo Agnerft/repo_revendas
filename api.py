@@ -1,5 +1,7 @@
-﻿from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import pandas as pd
 import os
@@ -11,13 +13,43 @@ import subprocess
 import sys
 import threading
 import time
+import secrets
 import requests
+from datetime import datetime, timezone
 from typing import Optional
 
 app = FastAPI(title="ServiÃ§o de Busca de Revendas")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_FILE = os.path.join(BASE_DIR, ".env")
+
+def load_env_file(path=ENV_FILE):
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+load_env_file()
+
 EXCEL_FILE = os.path.join(BASE_DIR, "revendas_consolidadas.xlsx")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+ACTION_HISTORY_FILE = os.path.join(LOG_DIR, "action_history.json")
+MAXPLAYER_CACHE_FILE = os.path.join(LOG_DIR, "maxplayer_users_cache.json")
+PAINEL_TEMPLATE = os.path.join(TEMPLATES_DIR, "painel.html")
+PANEL_USERNAME = os.getenv("PANEL_USERNAME", "")
+PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "")
+PANEL_PASSWORD_ENABLED = bool(PANEL_PASSWORD)
 df = None
 update_lock = threading.Lock()
 update_status = {
@@ -31,6 +63,86 @@ update_process = None
 UPDATE_LOG_FILE = os.path.join(BASE_DIR, "update_all_revendas.log")
 GESTOR_LOGIN_PAGE_URL = "https://app.gestorinove.com.br/login"
 GESTOR_LOGIN_URL = "https://app.gestorinove.com.br/valida"
+security = HTTPBasic(auto_error=False)
+
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+def require_panel_auth(credentials: Optional[HTTPBasicCredentials] = Depends(security)):
+    if not PANEL_PASSWORD_ENABLED:
+        return True
+
+    valid_username = not PANEL_USERNAME or (
+        credentials is not None and secrets.compare_digest(credentials.username, PANEL_USERNAME)
+    )
+    valid_password = credentials is not None and secrets.compare_digest(credentials.password, PANEL_PASSWORD)
+
+    if not valid_username or not valid_password:
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticacao necessaria.",
+            headers={"WWW-Authenticate": "Basic"}
+        )
+
+    return True
+
+def require_setting(value, name):
+    if not value:
+        raise HTTPException(status_code=500, detail=f"{name} nao configurado no .env.")
+    return value
+
+def ensure_log_dir():
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+def mask_secret(value):
+    if value is None:
+        return None
+
+    text = str(value)
+    if len(text) <= 6:
+        return "***"
+    return f"{text[:3]}***{text[-3:]}"
+
+def sanitize_action_details(value):
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, item in value.items():
+            if any(secret_key in key.lower() for secret_key in ["password", "senha", "token", "pass"]):
+                sanitized[key] = mask_secret(item)
+            else:
+                sanitized[key] = sanitize_action_details(item)
+        return sanitized
+
+    if isinstance(value, list):
+        return [sanitize_action_details(item) for item in value]
+
+    return value
+
+def log_action(action, status, details=None):
+    ensure_log_dir()
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "status": status,
+        "details": sanitize_action_details(details or {})
+    }
+
+    history = []
+    if os.path.exists(ACTION_HISTORY_FILE):
+        try:
+            with open(ACTION_HISTORY_FILE, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+
+    history.append(entry)
+    history = history[-500:]
+
+    with open(ACTION_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+    return entry
+
 
 class SearchRequest(BaseModel):
     termo: str
@@ -182,1825 +294,50 @@ def status():
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
 
-PAINEL_HTML = '''
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <title>Painel de Revendas</title>
-    <style>
-        :root {
-            --bg: #0b1020;
-            --surface: #101827;
-            --surface-2: #162033;
-            --line: #273449;
-            --text: #eef4ff;
-            --muted: #97a6ba;
-            --soft: #cbd5e1;
-            --green: #18b26b;
-            --green-soft: rgba(24, 178, 107, 0.15);
-            --blue: #3a82f7;
-            --blue-soft: rgba(58, 130, 247, 0.15);
-            --amber: #f59e0b;
-            --amber-soft: rgba(245, 158, 11, 0.14);
-            --red: #ef4444;
-            --red-soft: rgba(239, 68, 68, 0.14);
-            --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-        }
-
-        * { box-sizing: border-box; }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            color: var(--text);
-            background:
-                radial-gradient(circle at 15% 0%, rgba(24, 178, 107, 0.18), transparent 32rem),
-                radial-gradient(circle at 90% 10%, rgba(58, 130, 247, 0.14), transparent 30rem),
-                var(--bg);
-            font-family: Inter, "Segoe UI", Arial, sans-serif;
-        }
-
-        button, input {
-            font: inherit;
-        }
-
-        .shell {
-            display: grid;
-            grid-template-columns: 280px minmax(0, 1fr);
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            position: sticky;
-            top: 0;
-            height: 100vh;
-            padding: 28px 22px;
-            border-right: 1px solid var(--line);
-            background: rgba(12, 18, 32, 0.88);
-            backdrop-filter: blur(18px);
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 28px;
-        }
-
-        .brand-mark {
-            display: grid;
-            place-items: center;
-            width: 42px;
-            height: 42px;
-            border-radius: 8px;
-            color: #082013;
-            background: linear-gradient(135deg, #5ee2a0, #54a4ff);
-            font-weight: 900;
-        }
-
-        .brand-title {
-            margin: 0;
-            font-size: 18px;
-            line-height: 1.15;
-        }
-
-        .brand-subtitle {
-            margin: 3px 0 0;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .nav-label {
-            color: #6f7f94;
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-            margin-bottom: 10px;
-        }
-
-        .nav {
-            display: grid;
-            gap: 8px;
-            margin-bottom: 26px;
-        }
-
-        .nav button {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            width: 100%;
-            padding: 11px 12px;
-            border: 1px solid transparent;
-            border-radius: 8px;
-            color: var(--soft);
-            background: transparent;
-            cursor: pointer;
-            text-align: left;
-        }
-
-        .nav button:hover,
-        .nav button.active {
-            color: var(--text);
-            background: var(--surface-2);
-            border-color: var(--line);
-        }
-
-        .nav-count {
-            color: var(--muted);
-            font-size: 12px;
-        }
-
-        .side-note {
-            margin-top: auto;
-            padding: 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: var(--surface);
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.45;
-        }
-
-        main {
-            padding: 30px;
-        }
-
-        .topbar {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 20px;
-            margin-bottom: 22px;
-        }
-
-        h1 {
-            margin: 0;
-            font-size: clamp(28px, 4vw, 44px);
-            line-height: 1;
-            letter-spacing: 0;
-        }
-
-        .lead {
-            max-width: 780px;
-            margin: 12px 0 0;
-            color: var(--muted);
-            font-size: 15px;
-            line-height: 1.55;
-        }
-
-        .toolbar {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-        }
-
-        .btn {
-            min-height: 40px;
-            padding: 0 14px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            color: var(--text);
-            background: var(--surface-2);
-            cursor: pointer;
-            transition: transform .18s ease, border-color .18s ease, background .18s ease;
-        }
-
-        .btn:hover {
-            transform: translateY(-1px);
-            border-color: #40516b;
-        }
-
-        .btn.primary {
-            border-color: rgba(24, 178, 107, .45);
-            background: var(--green);
-            color: white;
-            font-weight: 800;
-        }
-
-        .btn.danger {
-            border-color: rgba(239, 68, 68, .5);
-            background: var(--red);
-            color: white;
-            font-weight: 800;
-        }
-
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-            margin-bottom: 18px;
-        }
-
-        .stat {
-            min-height: 112px;
-            padding: 18px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: rgba(16, 24, 39, .82);
-            box-shadow: var(--shadow);
-        }
-
-        .stat-label {
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 800;
-            letter-spacing: .07em;
-            text-transform: uppercase;
-        }
-
-        .stat-value {
-            margin-top: 12px;
-            font-size: 30px;
-            font-weight: 900;
-        }
-
-        .stat-helper {
-            margin-top: 7px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-
-        .workspace {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 360px;
-            gap: 18px;
-            align-items: start;
-        }
-
-        .panel {
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: rgba(16, 24, 39, .82);
-            box-shadow: var(--shadow);
-        }
-
-        .panel-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 16px;
-            border-bottom: 1px solid var(--line);
-        }
-
-        .panel-title {
-            margin: 0;
-            font-size: 16px;
-        }
-
-        .search {
-            width: min(360px, 100%);
-            padding: 10px 12px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            outline: none;
-            color: var(--text);
-            background: #0b1322;
-        }
-
-        .search:focus,
-        .field input:focus {
-            border-color: var(--blue);
-            box-shadow: 0 0 0 3px rgba(58, 130, 247, 0.14);
-        }
-
-        .endpoint-list {
-            display: grid;
-            gap: 12px;
-            padding: 16px;
-        }
-
-        .endpoint-card {
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            background: #0d1524;
-            overflow: hidden;
-        }
-
-        .endpoint-main {
-            display: grid;
-            grid-template-columns: 96px minmax(0, 1fr) auto;
-            gap: 14px;
-            align-items: start;
-            padding: 16px;
-        }
-
-        .method {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            width: 72px;
-            min-height: 28px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 900;
-            color: white;
-        }
-
-        .method.get { background: var(--green); }
-        .method.post { background: var(--blue); }
-        .method.delete { background: var(--red); }
-
-        .endpoint-path {
-            margin: 0 0 6px;
-            font-family: Consolas, "Courier New", monospace;
-            font-size: 16px;
-            color: white;
-            overflow-wrap: anywhere;
-        }
-
-        .endpoint-desc {
-            margin: 0;
-            color: var(--muted);
-            line-height: 1.45;
-            font-size: 14px;
-        }
-
-        .endpoint-body {
-            display: none;
-            border-top: 1px solid var(--line);
-            padding: 16px;
-            background: #0a111f;
-        }
-
-        .endpoint-card.open .endpoint-body {
-            display: grid;
-            gap: 14px;
-        }
-
-        pre {
-            margin: 0;
-            padding: 14px;
-            border: 1px solid #1f2d42;
-            border-radius: 8px;
-            overflow: auto;
-            color: #dbeafe;
-            background: #07101d;
-            font-family: Consolas, "Courier New", monospace;
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        .field {
-            display: grid;
-            gap: 7px;
-        }
-
-        .field label {
-            color: var(--soft);
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .field input {
-            width: 100%;
-            padding: 11px 12px;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            outline: none;
-            color: var(--text);
-            background: #0b1322;
-        }
-
-        .actions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .response {
-            display: none;
-            padding: 14px;
-            border-radius: 8px;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: Consolas, "Courier New", monospace;
-            font-size: 13px;
-            line-height: 1.45;
-        }
-
-        .response.show { display: block; }
-        .response.loading { color: #fef3c7; background: var(--amber-soft); border: 1px solid rgba(245, 158, 11, .35); }
-        .response.success { color: #b7f7d4; background: var(--green-soft); border: 1px solid rgba(24, 178, 107, .36); }
-        .response.error { color: #fecaca; background: var(--red-soft); border: 1px solid rgba(239, 68, 68, .38); }
-
-        .quick-card {
-            padding: 16px;
-            display: grid;
-            gap: 14px;
-        }
-
-        .quick-title {
-            margin: 0;
-            font-size: 15px;
-        }
-
-        .quick-text {
-            margin: 0;
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.45;
-        }
-
-        .update-log {
-            max-height: 360px;
-            overflow: auto;
-        }
-
-        .empty {
-            padding: 26px;
-            text-align: center;
-            color: var(--muted);
-        }
-
-        @media (max-width: 1080px) {
-            .shell { grid-template-columns: 1fr; }
-            .sidebar {
-                position: static;
-                height: auto;
-                border-right: 0;
-                border-bottom: 1px solid var(--line);
-            }
-            .workspace { grid-template-columns: 1fr; }
-            .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-
-        @media (max-width: 720px) {
-            main { padding: 18px; }
-            .topbar,
-            .panel-header {
-                align-items: stretch;
-                flex-direction: column;
-            }
-            .toolbar { justify-content: stretch; }
-            .toolbar .btn { flex: 1; }
-            .status-grid { grid-template-columns: 1fr; }
-            .endpoint-main { grid-template-columns: 1fr; }
-            .endpoint-main .btn { width: 100%; }
-        }
-
-        body {
-            color: #172033;
-            background: #f4f7fb;
-        }
-
-        .shell {
-            display: block;
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            display: none;
-        }
-
-        .workspace {
-            display: none;
-            grid-template-columns: minmax(0, 1fr) 340px;
-            margin-top: 18px;
-        }
-
-        .workspace.show {
-            display: grid;
-        }
-
-        main {
-            width: min(1120px, calc(100% - 32px));
-            margin: 0 auto;
-            padding: 34px 0 54px;
-        }
-
-        .topbar {
-            align-items: center;
-            margin-bottom: 18px;
-        }
-
-        h1 {
-            color: #111827;
-            font-size: clamp(26px, 3vw, 38px);
-        }
-
-        .lead {
-            max-width: 620px;
-            color: #667085;
-        }
-
-        .btn {
-            color: #263244;
-            background: #fff;
-            border-color: #d7deea;
-            box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
-        }
-
-        .btn.primary {
-            color: #fff;
-            background: #166534;
-            border-color: #166534;
-        }
-
-        .status-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            margin: 18px 0;
-        }
-
-        .stat,
-        .panel {
-            color: #172033;
-            background: #fff;
-            border-color: #e4e9f2;
-            box-shadow: 0 14px 36px rgba(16, 24, 40, .08);
-        }
-
-        .stat-value {
-            color: #111827;
-            font-size: 28px;
-        }
-
-        .stat-label,
-        .stat-helper {
-            color: #667085;
-        }
-
-        .unified {
-            padding: 22px;
-            border: 1px solid #e4e9f2;
-            border-radius: 8px;
-            background: #fff;
-            box-shadow: 0 14px 36px rgba(16, 24, 40, .08);
-        }
-
-        .unified-form {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 10px;
-            margin-top: 14px;
-        }
-
-        .unified-input {
-            width: 100%;
-            min-height: 48px;
-            padding: 0 14px;
-            border: 1px solid #cfd8e6;
-            border-radius: 8px;
-            outline: none;
-            color: #111827;
-            background: #fff;
-        }
-
-        .unified-input:focus {
-            border-color: #166534;
-            box-shadow: 0 0 0 3px rgba(22, 101, 52, .12);
-        }
-
-        .unified-title {
-            margin: 0;
-            color: #111827;
-            font-size: 18px;
-        }
-
-        .unified-text {
-            margin: 6px 0 0;
-            color: #667085;
-            line-height: 1.45;
-        }
-
-.results {
-            display: none;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 16px;
-        }
-
-        .results.show {
-            display: grid;
-        }
-
-        .result-card {
-            min-height: 250px;
-            padding: 18px;
-            border: 1px solid #e4e9f2;
-            border-radius: 8px;
-            background: #fbfcfe;
-        }
-
-        .result-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-
-        .result-title {
-            margin: 0;
-            color: #111827;
-            font-size: 16px;
-        }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            min-height: 26px;
-            padding: 0 9px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 800;
-        }
-
-        .badge.ok {
-            color: #166534;
-            background: #dcfce7;
-        }
-
-        .badge.warn {
-            color: #92400e;
-            background: #fef3c7;
-        }
-
-        .badge.err {
-            color: #991b1b;
-            background: #fee2e2;
-        }
-
-        .data-grid {
-            display: grid;
-            gap: 10px;
-        }
-
-        .data-row {
-            display: grid;
-            grid-template-columns: 128px minmax(0, 1fr);
-            gap: 12px;
-            padding-bottom: 9px;
-            border-bottom: 1px solid #edf1f7;
-        }
-
-        .data-row:last-child {
-            border-bottom: 0;
-            padding-bottom: 0;
-        }
-
-        .data-label {
-            color: #667085;
-            font-size: 12px;
-            font-weight: 800;
-            text-transform: uppercase;
-        }
-
-        .data-value {
-            color: #172033;
-            overflow-wrap: anywhere;
-        }
-
-        .empty-result {
-            color: #667085;
-            line-height: 1.5;
-        }
-
-        .raw-toggle {
-            margin-top: 14px;
-            color: #475467;
-            background: transparent;
-            border: 0;
-            padding: 0;
-            cursor: pointer;
-            font-weight: 700;
-        }
-
-        .raw-output {
-            display: none;
-            margin-top: 12px;
-            color: #344054;
-            background: #f7f9fc;
-            border-color: #e4e9f2;
-        }
-
-        .raw-output.show {
-            display: block;
-        }
-
-        .inline-form {
-            display: grid;
-            gap: 10px;
-            margin-top: 14px;
-            padding-top: 14px;
-            border-top: 1px solid #edf1f7;
-        }
-
-        .inline-form label {
-            color: #667085;
-            font-size: 12px;
-            font-weight: 800;
-            text-transform: uppercase;
-        }
-
-        .inline-form select,
-        .inline-form input {
-            min-height: 38px;
-            padding: 0 10px;
-            border: 1px solid #cfd8e6;
-            border-radius: 8px;
-            color: #111827;
-            background: #fff;
-        }
-
-        .inline-form .btn {
-            justify-self: start;
-        }
-
-        .value-link {
-            display: inline-flex;
-            align-items: center;
-            min-height: 32px;
-            padding: 0 10px;
-            border-radius: 8px;
-            color: #fff;
-            background: #166534;
-            text-decoration: none;
-            font-weight: 800;
-        }
-
-        .link-actions {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .copy-link {
-            display: inline-grid;
-            place-items: center;
-            width: 34px;
-            min-height: 32px;
-            padding: 0;
-            border: 1px solid #cfd8e6;
-            border-radius: 8px;
-            color: #263244;
-            background: #fff;
-            cursor: pointer;
-            font-weight: 800;
-        }
-
-        .copy-link svg {
-            width: 16px;
-            height: 16px;
-            pointer-events: none;
-        }
-
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
-
-        .copy-link.copied {
-            color: #166534;
-            border-color: #86efac;
-            background: #dcfce7;
-        }
-
-        .theme-toggle {
-            min-width: 122px;
-        }
-
-        .workspace .panel {
-            box-shadow: none;
-        }
-
-        .workspace .endpoint-card,
-        .workspace pre,
-        .workspace .endpoint-body {
-            background: #fff;
-            color: #172033;
-            border-color: #e4e9f2;
-        }
-
-        .workspace .endpoint-path {
-            color: #111827;
-        }
-
-        .workspace .search,
-        .workspace .field input {
-            color: #111827;
-            background: #fff;
-            border-color: #cfd8e6;
-        }
-
-        body.theme-dark {
-            color: #e5edf8;
-            background: #0b1020;
-        }
-
-        body.theme-dark h1,
-        body.theme-dark .unified-title,
-        body.theme-dark .result-title,
-        body.theme-dark .stat-value,
-        body.theme-dark .panel-title,
-        body.theme-dark .endpoint-path {
-            color: #f8fafc;
-        }
-
-        body.theme-dark .lead,
-        body.theme-dark .unified-text,
-        body.theme-dark .stat-label,
-        body.theme-dark .stat-helper,
-        body.theme-dark .data-label,
-        body.theme-dark .endpoint-desc,
-        body.theme-dark .quick-text,
-        body.theme-dark .empty-result {
-            color: #9aa8bb;
-        }
-
-        body.theme-dark .unified,
-        body.theme-dark .stat,
-        body.theme-dark .panel,
-        body.theme-dark .result-card,
-        body.theme-dark .endpoint-card {
-            color: #e5edf8;
-            background: #111827;
-            border-color: #263244;
-            box-shadow: 0 14px 36px rgba(0, 0, 0, .24);
-        }
-
-        body.theme-dark .result-card,
-        body.theme-dark .workspace .endpoint-card,
-        body.theme-dark .workspace pre,
-        body.theme-dark .workspace .endpoint-body,
-        body.theme-dark .raw-output {
-            background: #0f172a;
-            color: #dbeafe;
-            border-color: #263244;
-        }
-
-        body.theme-dark .btn,
-        body.theme-dark .unified-input,
-        body.theme-dark .inline-form select,
-        body.theme-dark .inline-form input,
-        body.theme-dark .workspace .search,
-        body.theme-dark .workspace .field input {
-            color: #e5edf8;
-            background: #0f172a;
-            border-color: #334155;
-        }
-
-        body.theme-dark .btn.primary,
-        body.theme-dark .value-link {
-            background: #18b26b;
-            border-color: #18b26b;
-            color: #052e16;
-        }
-
-        body.theme-dark .copy-link {
-            color: #e5edf8;
-            background: #0f172a;
-            border-color: #334155;
-        }
-
-        body.theme-dark .copy-link.copied {
-            color: #86efac;
-            background: #052e16;
-            border-color: #166534;
-        }
-
-        body.theme-dark .data-row {
-            border-color: #263244;
-        }
-
-        body.theme-dark .inline-form {
-            border-color: #263244;
-        }
-
-        body.theme-dark .data-value {
-            color: #e5edf8;
-        }
-
-        @media (max-width: 820px) {
-            main {
-                width: min(100% - 22px, 1120px);
-                padding-top: 22px;
-            }
-
-            .topbar,
-            .unified-form {
-                grid-template-columns: 1fr;
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .status-grid,
-            .results {
-                grid-template-columns: 1fr;
-            }
-
-            .workspace,
-            .workspace.show {
-                grid-template-columns: 1fr;
-            }
-
-            .data-row {
-                grid-template-columns: 1fr;
-                gap: 4px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="shell">
-        <aside class="sidebar">
-            <div class="brand">
-                <div class="brand-mark">RV</div>
-                <div>
-                    <h2 class="brand-title">Revendas API</h2>
-                    <p class="brand-subtitle">Painel operacional</p>
-                </div>
-            </div>
-
-            <div class="nav-label">Filtros</div>
-            <nav class="nav" id="navFilters">
-                <button class="active" data-filter="all">Todos <span class="nav-count" id="countAll">0</span></button>
-                <button data-filter="GET">GET <span class="nav-count" id="countGet">0</span></button>
-                <button data-filter="POST">POST <span class="nav-count" id="countPost">0</span></button>
-                <button data-filter="DELETE">DELETE <span class="nav-count" id="countDelete">0</span></button>
-            </nav>
-
-            <div class="side-note">
-                Use este painel para consultar clientes, listar revendas, recarregar a planilha e acompanhar atualizacoes sem abrir o Postman.
-            </div>
-        </aside>
-
-        <main>
-            <section class="topbar">
-                <div>
-                    <h1>Consulta de cliente</h1>
-                    <p class="lead">Pesquise uma vez e veja o retorno da base de linhas e do MaxPlayer no mesmo lugar.</p>
-                </div>
-                <div class="toolbar">
-                    <button class="btn theme-toggle" id="themeToggleBtn">Modo escuro</button>
-                    <button class="btn" id="toggleEndpointsBtn">Endpoints</button>
-                    <button class="btn" id="refreshStatusBtn">Atualizar status</button>
-                    <button class="btn primary" id="runUpdateBtn">Atualizar dados</button>
-                </div>
-            </section>
-
-            <section class="unified">
-                <h2 class="unified-title">Pesquisa unificada</h2>
-                <p class="unified-text">Digite telefone, usuario, ID ou email. Para a base de linhas, a busca usa apenas os numeros do telefone.</p>
-                <form class="unified-form" id="clientSearchForm">
-                    <input class="unified-input" id="clientSearchInput" type="search" placeholder="Ex: 5521999999999 ou usuario MaxPlayer" autocomplete="off">
-                    <button class="btn primary" id="clientSearchButton" type="submit">Pesquisar</button>
-                </form>
-                <div class="results" id="clientResults">
-                    <article class="result-card" id="resellerResult"></article>
-                    <article class="result-card" id="lineResult"></article>
-                    <article class="result-card" id="maxplayerResult"></article>
-                </div>
-            </section>
-
-            <section class="status-grid">
-                <article class="stat">
-                    <div class="stat-label">Registros</div>
-                    <div class="stat-value" id="totalRegs">-</div>
-                    <div class="stat-helper">Carregados do Excel</div>
-                </article>
-                <article class="stat">
-                    <div class="stat-label">Endpoints</div>
-                    <div class="stat-value" id="endpointTotal">-</div>
-                    <div class="stat-helper">Disponiveis neste painel</div>
-                </article>
-                <article class="stat">
-                    <div class="stat-label">API</div>
-                    <div class="stat-value" id="apiState">-</div>
-                    <div class="stat-helper" id="apiMessage">Verificando...</div>
-                </article>
-                <article class="stat">
-                    <div class="stat-label">Atualizacao</div>
-                    <div class="stat-value" id="updateState">Idle</div>
-                    <div class="stat-helper" id="updateMessage">Nenhuma execucao ativa</div>
-                </article>
-            </section>
-
-            <section class="workspace">
-                <div class="panel">
-                    <div class="panel-header">
-                        <h2 class="panel-title">Endpoints</h2>
-                        <input class="search" id="searchInput" type="search" placeholder="Buscar endpoint ou descricao">
-                    </div>
-                    <div class="endpoint-list" id="endpointList"></div>
-                    <div class="empty" id="emptyState" hidden>Nenhum endpoint encontrado.</div>
-                </div>
-
-                <aside class="panel">
-                    <div class="panel-header">
-                        <h2 class="panel-title">Execucao recente</h2>
-                    </div>
-                    <div class="quick-card">
-                        <p class="quick-title">Status do atualizador</p>
-                        <p class="quick-text">Ao iniciar a atualizacao, o painel acompanha o processo em segundo plano e mostra o retorno mais recente.</p>
-                        <pre class="update-log" id="updateLog">Aguardando acao.</pre>
-                    </div>
-                </aside>
-            </section>
-        </main>
-    </div>
-
-    <script>
-        const VERSION = '3.0';
-        const endpoints = [
-            {
-                method: 'GET',
-                path: '/status',
-                description: 'Retorna o status da API e o total de registros carregados.',
-                sample: '{\\n  "message": "API de Busca de Clientes Ativa",\\n  "total_registros": 42860\\n}',
-                action: { type: 'request', label: 'Testar', endpoint: '/status', responseId: 'r-status' }
-            },
-            {
-                method: 'POST',
-                path: '/buscar',
-                description: 'Busca um cliente em todas as colunas pelo termo informado.',
-                sample: 'Body: { "termo": "+5551999999999" }\\n\\nRetorna o primeiro cliente encontrado.',
-                field: { id: 'buscarTermo', label: 'Termo de busca', placeholder: 'Telefone, nome ou ID' },
-                action: { type: 'postTerm', label: 'Buscar', endpoint: '/buscar', inputId: 'buscarTermo', responseId: 'r-buscar' }
-            },
-            {
-                method: 'POST',
-                path: '/filtrar',
-                description: 'Retorna uma lista com todos os clientes encontrados. Bom para busca por data.',
-                sample: 'Body: { "termo": "19/08/2025" }\\n\\nRetorna: [ { ... }, { ... } ]',
-                field: { id: 'filtrarTermo', label: 'Filtro', placeholder: 'Data, nome, telefone ou termo' },
-                action: { type: 'postTerm', label: 'Filtrar', endpoint: '/filtrar', inputId: 'filtrarTermo', responseId: 'r-filtrar' }
-            },
-            {
-                method: 'POST',
-                path: '/cliente/consulta',
-                description: 'Consulta revendas, link de pagamento, linhas e MaxPlayer em uma unica pesquisa.',
-                sample: 'Body: { "termo": "5521999999999" }\\n\\nRetorna: revenda, linha e maxplayer.',
-                field: { id: 'consultaUnificadaTermo', label: 'Termo', placeholder: 'Telefone, usuario, ID ou email' },
-                action: { type: 'postTerm', label: 'Consultar tudo', endpoint: '/cliente/consulta', inputId: 'consultaUnificadaTermo', responseId: 'r-consulta-unificada' }
-            },
-            {
-                method: 'GET',
-                path: '/reload',
-                description: 'Recarrega os dados do Excel sem reiniciar o servidor.',
-                sample: '{\\n  "message": "Dados recarregados.",\\n  "total_registros": 42860\\n}',
-                action: { type: 'request', label: 'Recarregar', endpoint: '/reload', responseId: 'r-reload' }
-            },
-            {
-                method: 'POST',
-                path: '/atualizar',
-                description: 'Executa o script update_all_revendas.py para atualizar todos os dados.',
-                sample: '{\\n  "message": "Atualizacao iniciada em segundo plano",\\n  "status_url": "/atualizar/status"\\n}',
-                action: { type: 'update', label: 'Atualizar dados', responseId: 'r-atualizar' }
-            },
-            {
-                method: 'GET',
-                path: '/atualizar/status',
-                description: 'Consulta o andamento da atualizacao em segundo plano.',
-                sample: '{\\n  "running": false,\\n  "status": "success",\\n  "message": "Atualizado com sucesso"\\n}',
-                action: { type: 'request', label: 'Ver status', endpoint: '/atualizar/status', responseId: 'r-atualizar-status' }
-            },
-            {
-                method: 'GET',
-                path: '/revenda/adicionar',
-                description: 'Mostra a documentacao para adicionar uma nova revenda.',
-                sample: 'Retorna instrucoes de uso do POST /revenda/adicionar.',
-                action: { type: 'request', label: 'Ver instrucoes', endpoint: '/revenda/adicionar', responseId: 'r-add-doc' }
-            },
-            {
-                method: 'POST',
-                path: '/revenda/adicionar',
-                description: 'Adiciona uma nova revenda ao arquivo de logins.',
-                sample: 'Body: {\\n  "nome": "Revenda XYZ",\\n  "email": "revenda@email.com",\\n  "password": "senha123",\\n  "filename": "opcional.json"\\n}',
-                action: { type: 'manual', label: 'Usar via API', responseId: 'r-add' }
-            },
-            {
-                method: 'POST',
-                path: '/ (alias)',
-                description: 'Alias para /buscar. Busca cliente pelo termo enviado.',
-                sample: 'Body: { "termo": "valor" }\\n\\nRetorna o cliente encontrado.',
-                field: { id: 'aliasTermo', label: 'Termo', placeholder: 'Digite o termo de busca' },
-                action: { type: 'postTerm', label: 'Testar alias', endpoint: '/', inputId: 'aliasTermo', responseId: 'r-alias' }
-            },
-            {
-                method: 'GET',
-                path: '/consultar-linha/{telefone}',
-                description: 'Consulta API externa de linhas pelo numero de telefone.',
-                sample: 'Exemplo: /consultar-linha/5511999999999\\n\\nRetorna dados da linha na API externa.',
-                field: { id: 'linhaTelefone', label: 'Telefone', placeholder: 'Telefone com DDD' },
-                action: { type: 'phone', label: 'Consultar linha', inputId: 'linhaTelefone', responseId: 'r-linha' }
-            },
-            {
-                method: 'POST',
-                path: '/maxplayer/usuario',
-                description: 'Pesquisa se um usuario existe na base do MaxPlayer.',
-                sample: 'Body: { "termo": "5521999999999" }\\n\\nBusca por usuario, ID, email ou usuario IPTV vinculado.',
-                field: { id: 'maxplayerUsuario', label: 'Usuario MaxPlayer', placeholder: 'Usuario, telefone, ID ou email' },
-                action: { type: 'postTerm', label: 'Pesquisar MaxPlayer', endpoint: '/maxplayer/usuario', inputId: 'maxplayerUsuario', responseId: 'r-maxplayer' }
-            },
-            {
-                method: 'GET',
-                path: '/maxplayer/domains',
-                description: 'Lista os dominios configurados no MaxPlayer.',
-                sample: 'Retorna: { "domains": [ { "id": "...", "domain": "..." } ] }',
-                action: { type: 'request', label: 'Listar dominios', endpoint: '/maxplayer/domains', responseId: 'r-max-domains' }
-            },
-            {
-                method: 'POST',
-                path: '/maxplayer/lista/dominio',
-                description: 'Troca o dominio de uma lista MaxPlayer.',
-                sample: 'Body: { "list_id": "...", "domain_id": "...", "new_list_name": "List 1", "iptv_username": "...", "iptv_password": "..." }',
-                action: { type: 'manual', label: 'Usar pela busca', responseId: 'r-max-edit-domain' }
-            },
-            {
-                method: 'GET',
-                path: '/revenda/listar',
-                description: 'Lista todas as revendas cadastradas com total de clientes.',
-                sample: '{\\n  "total": 5,\\n  "revendas": [\\n    { "nome": "...", "email": "...", "total_clientes": 150 }\\n  ]\\n}',
-                action: { type: 'request', label: 'Listar revendas', endpoint: '/revenda/listar', responseId: 'r-listar' }
-            },
-            {
-                method: 'DELETE',
-                path: '/revenda/excluir',
-                description: 'Exclui uma revenda pelo email e remove o arquivo JSON relacionado.',
-                sample: 'Body: { "email": "revenda@email.com" }\\n\\nAtencao: esta acao nao pode ser desfeita.',
-                field: { id: 'deleteEmail', label: 'Email da revenda', placeholder: 'revenda@email.com', type: 'email' },
-                action: { type: 'delete', label: 'Excluir revenda', inputId: 'deleteEmail', responseId: 'r-delete' }
-            }
-        ];
-
-        let activeFilter = 'all';
-        let updateTimer = null;
-        let lastUnifiedData = null;
-        let maxplayerDomains = [];
-
-        const endpointList = document.getElementById('endpointList');
-        const emptyState = document.getElementById('emptyState');
-        const searchInput = document.getElementById('searchInput');
-
-        function escapeHtml(value) {
-            return String(value)
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#039;');
-        }
-
-        function setResponse(id, state, message) {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.className = 'response show ' + state;
-            el.textContent = message;
-        }
-
-        async function requestJson(endpoint, options = {}) {
-            const separator = endpoint.includes('?') ? '&' : '?';
-            const response = await fetch(endpoint + separator + 'v=' + VERSION, options);
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(JSON.stringify(data, null, 2));
-            }
-            return data;
-        }
-
-        function pretty(data) {
-            return JSON.stringify(data, null, 2);
-        }
-
-        function normalizeStatus(status) {
-            if (status === 'sucesso') return { label: 'Encontrado', className: 'ok' };
-            if (status === 'erro') return { label: 'Erro', className: 'err' };
-            if (status === 'ignorado') return { label: 'Ignorado', className: 'warn' };
-            return { label: 'Nao encontrado', className: 'warn' };
-        }
-
-        function emptyValue(value) {
-            return value === undefined || value === null || value === '' ? 'N/A' : value;
-        }
-
-        function formatTrialValue(value) {
-            const normalized = String(value || '').toLowerCase();
-            return normalized.includes('sim') ? 'Teste' : 'Cliente';
-        }
-
-        function copyIcon(label = 'Copiar link') {
-            return `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect width="14" height="14" x="8" y="8" rx="2"></rect>
-                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
-                </svg>
-                <span class="sr-only">${escapeHtml(label)}</span>`;
-        }
-
-        function checkIcon() {
-            return `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M20 6 9 17l-5-5"></path>
-                </svg>
-                <span class="sr-only">Copiado</span>`;
-        }
-
-        async function copyText(value) {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(value);
-                return;
-            }
-
-            const area = document.createElement('textarea');
-            area.value = value;
-            area.setAttribute('readonly', '');
-            area.style.position = 'fixed';
-            area.style.left = '-9999px';
-            area.style.top = '0';
-            document.body.appendChild(area);
-            area.focus();
-            area.select();
-            const ok = document.execCommand('copy');
-            area.remove();
-            if (!ok) {
-                throw new Error('copy_failed');
-            }
-        }
-
-        function dataRows(rows) {
-            return `
-                <div class="data-grid">
-                    ${rows.map((row) => `
-                        <div class="data-row">
-                            <div class="data-label">${escapeHtml(row[0])}</div>
-                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `
-                                <div class="link-actions">
-                                    <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
-                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}" title="Copiar link" aria-label="Copiar link">${copyIcon()}</button>
-                                </div>` : escapeHtml(emptyValue(row[1]))}</div>
-                        </div>
-                    `).join('')}
-                </div>`;
-        }
-
-        function renderResultCard(targetId, title, status, rows, emptyMessage, rawData) {
-            const target = document.getElementById(targetId);
-            const badge = normalizeStatus(status);
-            const rawId = targetId + '-raw';
-            target.innerHTML = `
-                <div class="result-head">
-                    <h3 class="result-title">${escapeHtml(title)}</h3>
-                    <span class="badge ${badge.className}">${escapeHtml(badge.label)}</span>
-                </div>
-                ${rows.length ? dataRows(rows) : `<p class="empty-result">${escapeHtml(emptyMessage)}</p>`}
-                <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
-                <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
-            `;
-        }
-
-        function domainOptions(selectedId = '') {
-            if (!maxplayerDomains.length) {
-                return '<option value="">Carregando dominios...</option>';
-            }
-
-            return [
-                '<option value="">Selecione um dominio</option>',
-                ...maxplayerDomains.map((domain) => {
-                    const label = `${domain.domain}${domain.label ? ' - ' + domain.label : ''} (${domain.https ? 'HTTPS' : 'HTTP'}:${domain.port || '80'})`;
-                    const selected = String(domain.id) === String(selectedId) ? ' selected' : '';
-                    return `<option value="${escapeHtml(domain.id)}"${selected}>${escapeHtml(label)}</option>`;
-                })
-            ].join('');
-        }
-
-        async function loadMaxplayerDomains() {
-            try {
-                const data = await requestJson('/maxplayer/domains');
-                maxplayerDomains = data.domains || [];
-                document.querySelectorAll('select[data-domain-select]').forEach((select) => {
-                    const selected = select.dataset.selected || select.value;
-                    select.innerHTML = domainOptions(selected);
-                    select.value = selected;
-                });
-            } catch (error) {
-                maxplayerDomains = [];
-            }
-        }
-
-        function maxplayerCreateForm(data) {
-            const linha = data.linha?.linha || {};
-            const termo = data.telefone_normalizado || data.termo_buscado || '';
-            const iptvUser = linha.usuario && linha.usuario !== 'N/A' ? linha.usuario : termo;
-            const iptvPass = linha.senha && linha.senha !== 'N/A' ? linha.senha : '';
-            const disabled = iptvUser && iptvPass ? '' : ' disabled';
-            const hint = iptvUser && iptvPass ? '' : '<p class="empty-result">Para criar, preciso encontrar usuario e senha na base de linhas.</p>';
-
-            return `
-                <div class="inline-form">
-                    <label for="createMaxDomain">Dominio para criar</label>
-                    <select id="createMaxDomain" data-domain-select>${domainOptions('')}</select>
-                    <input id="createMaxUser" value="${escapeHtml(iptvUser)}" placeholder="Usuario IPTV">
-                    <input id="createMaxPass" value="${escapeHtml(iptvPass)}" placeholder="Senha IPTV">
-                    ${hint}
-                    <button class="btn primary" type="button" data-create-maxplayer${disabled}>Criar no MaxPlayer</button>
-                </div>`;
-        }
-
-        function maxplayerDomainForm(user) {
-            const list = (user.listas || [])[0] || {};
-            const iptv = list.iptv || {};
-            if (!list.id || !iptv.usuario || !iptv.senha) {
-                return '';
-            }
-
-            return `
-                <div class="inline-form">
-                    <label for="editMaxDomain">Trocar dominio</label>
-                    <select id="editMaxDomain" data-domain-select data-selected="${escapeHtml(list.dominio_id || '')}">${domainOptions(list.dominio_id || '')}</select>
-                    <button class="btn primary" type="button"
-                        data-edit-max-domain
-                        data-list-id="${escapeHtml(list.id)}"
-                        data-list-name="${escapeHtml(list.nome || 'List 1')}"
-                        data-iptv-user="${escapeHtml(iptv.usuario)}"
-                        data-iptv-pass="${escapeHtml(iptv.senha)}">
-                        Salvar dominio
-                    </button>
-                </div>`;
-        }
-
-        function renderResellerResult(data) {
-            const revenda = data.revenda || {};
-            const rows = revenda.status === 'sucesso' ? [
-                ['Cliente', revenda.nome],
-                ['Telefone', revenda.telefone],
-                ['Revenda', revenda.Revenda],
-                ['Plano', revenda.plano],
-                ['Vencimento', revenda.data_expiracao],
-                ['ID cliente', revenda.Id_client],
-                ['DT Row', revenda.DT_RowId],
-                ['Pagamento', revenda.Link, 'link']
-            ] : [];
-
-            renderResultCard(
-                'resellerResult',
-                'Revenda e pagamento',
-                revenda.status,
-                rows,
-                revenda.mensagem || 'Nenhum cadastro encontrado na base das revendas.',
-                revenda
-            );
-        }
-
-        function renderLineResult(data) {
-            const linha = data.linha || {};
-            const detalhe = linha.linha || {};
-            const rows = linha.status === 'sucesso' ? [
-                ['Telefone', detalhe.telefone],
-                ['Usuario', detalhe.usuario],
-                ['Senha', detalhe.senha],
-                ['Vencimento', detalhe.vencimento],
-                ['Dias restantes', detalhe.dias_restantes],
-                ['Status', detalhe.status_conta],
-                ['Tipo', formatTrialValue(detalhe.e_teste)],
-                ['Revenda', detalhe.revenda]
-            ] : [];
-
-            renderResultCard(
-                'lineResult',
-                'Base de linhas',
-                linha.status,
-                rows,
-                linha.mensagem || 'Nenhuma linha encontrada com este telefone.',
-                linha
-            );
-        }
-
-        function renderMaxplayerResult(data) {
-            const maxplayer = data.maxplayer || {};
-            const user = (maxplayer.usuarios || [])[0] || {};
-            const list = (user.listas || [])[0] || {};
-            const iptv = list.iptv || {};
-            const rows = maxplayer.status === 'sucesso' ? [
-                ['Usuario', user.usuario],
-                ['ID', user.id],
-                ['Email', user.email],
-                ['Lista', list.nome],
-                ['Dominio', iptv.fqdn],
-                ['Porta', iptv.porta],
-                ['Usuario IPTV', iptv.usuario],
-                ['Senha IPTV', iptv.senha],
-                ['Encontrados', maxplayer.total_encontrado],
-                ['Cache', maxplayer.cache]
-            ] : [];
-
-            renderResultCard(
-                'maxplayerResult',
-                'MaxPlayer',
-                maxplayer.status,
-                rows,
-                maxplayer.mensagem || 'Nenhum usuario encontrado no MaxPlayer.',
-                maxplayer
-            );
-
-            if (maxplayer.status === 'sucesso') {
-                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerDomainForm(user));
-            } else {
-                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerCreateForm(data));
-            }
-        }
-
-        async function runUnifiedSearch(term) {
-            const button = document.getElementById('clientSearchButton');
-            const results = document.getElementById('clientResults');
-
-            button.disabled = true;
-            button.textContent = 'Pesquisando...';
-            results.classList.add('show');
-            renderResultCard('resellerResult', 'Revenda e pagamento', 'ignorado', [], 'Consultando base das revendas...', {});
-            renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
-            renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
-
-            try {
-                const data = await requestJson('/cliente/consulta', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ termo: term })
-                });
-                lastUnifiedData = data;
-                renderResellerResult(data);
-                renderLineResult(data);
-                renderMaxplayerResult(data);
-                loadMaxplayerDomains();
-            } catch (error) {
-                renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
-                renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
-                renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
-            } finally {
-                button.disabled = false;
-                button.textContent = 'Pesquisar';
-            }
-        }
-
-        async function runRequest(action, method = 'GET') {
-            setResponse(action.responseId, 'loading', 'Carregando...');
-            try {
-                const data = await requestJson(action.endpoint, { method });
-                setResponse(action.responseId, 'success', pretty(data));
-                if (action.endpoint === '/status' || action.endpoint === '/reload') {
-                    await loadStats();
-                }
-            } catch (error) {
-                setResponse(action.responseId, 'error', error.message);
-            }
-        }
-
-        async function runPostTerm(action) {
-            const value = document.getElementById(action.inputId).value.trim();
-            if (!value) {
-                setResponse(action.responseId, 'error', 'Digite um termo para continuar.');
-                return;
-            }
-            setResponse(action.responseId, 'loading', 'Buscando...');
-            try {
-                const data = await requestJson(action.endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ termo: value })
-                });
-                setResponse(action.responseId, 'success', pretty(data));
-            } catch (error) {
-                setResponse(action.responseId, 'error', error.message);
-            }
-        }
-
-        async function runPhone(action) {
-            const value = document.getElementById(action.inputId).value.trim();
-            const phone = value.replace(/\\D/g, '');
-            if (!phone) {
-                setResponse(action.responseId, 'error', 'Digite um telefone para continuar.');
-                return;
-            }
-            setResponse(action.responseId, 'loading', 'Consultando linha...');
-            try {
-                const data = await requestJson('/consultar-linha/' + phone);
-                setResponse(action.responseId, 'success', pretty(data));
-            } catch (error) {
-                setResponse(action.responseId, 'error', error.message);
-            }
-        }
-
-        async function runDelete(action) {
-            const email = document.getElementById(action.inputId).value.trim();
-            if (!email) {
-                setResponse(action.responseId, 'error', 'Digite o email da revenda.');
-                return;
-            }
-            if (!confirm('Tem certeza que deseja excluir a revenda ' + email + '?\\n\\nEsta acao nao pode ser desfeita.')) {
-                return;
-            }
-            setResponse(action.responseId, 'loading', 'Excluindo revenda...');
-            try {
-                const data = await requestJson('/revenda/excluir', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
-                });
-                setResponse(action.responseId, data.status === 'sucesso' ? 'success' : 'error', pretty(data));
-                if (data.status === 'sucesso') {
-                    document.getElementById(action.inputId).value = '';
-                }
-            } catch (error) {
-                setResponse(action.responseId, 'error', error.message);
-            }
-        }
-
-        async function runUpdate(action) {
-            setResponse(action.responseId, 'loading', 'Iniciando atualizacao...');
-            try {
-                const data = await requestJson('/atualizar', { method: 'POST' });
-                setResponse(action.responseId, 'success', pretty(data));
-                document.getElementById('updateLog').textContent = pretty(data);
-                await pollUpdateStatus(true);
-            } catch (error) {
-                setResponse(action.responseId, 'error', error.message);
-                await pollUpdateStatus(false);
-            }
-        }
-
-        function runManual(action) {
-            setResponse(action.responseId, 'loading', 'Este endpoint precisa de nome, email, senha e filename opcional. Use um cliente HTTP para enviar o JSON completo.');
-        }
-
-        async function handleAction(action) {
-            if (action.type === 'request') return runRequest(action);
-            if (action.type === 'postTerm') return runPostTerm(action);
-            if (action.type === 'phone') return runPhone(action);
-            if (action.type === 'delete') return runDelete(action);
-            if (action.type === 'update') return runUpdate(action);
-            return runManual(action);
-        }
-
-        function renderEndpoints() {
-            const term = searchInput.value.trim().toLowerCase();
-            const visible = endpoints.filter((item) => {
-                const matchesFilter = activeFilter === 'all' || item.method === activeFilter;
-                const content = (item.method + ' ' + item.path + ' ' + item.description).toLowerCase();
-                return matchesFilter && content.includes(term);
-            });
-
-            endpointList.innerHTML = visible.map((item, index) => {
-                const field = item.field ? `
-                    <div class="field">
-                        <label for="${item.field.id}">${escapeHtml(item.field.label)}</label>
-                        <input id="${item.field.id}" type="${item.field.type || 'text'}" placeholder="${escapeHtml(item.field.placeholder)}">
-                    </div>` : '';
-                return `
-                    <article class="endpoint-card" data-index="${endpoints.indexOf(item)}">
-                        <div class="endpoint-main">
-                            <span class="method ${item.method.toLowerCase()}">${item.method}</span>
-                            <div>
-                                <h3 class="endpoint-path">${escapeHtml(item.path)}</h3>
-                                <p class="endpoint-desc">${escapeHtml(item.description)}</p>
-                            </div>
-                            <button class="btn" data-toggle="${index}">Detalhes</button>
-                        </div>
-                        <div class="endpoint-body">
-                            <pre>${escapeHtml(item.sample)}</pre>
-                            ${field}
-                            <div class="actions">
-                                <button class="btn ${item.method === 'DELETE' ? 'danger' : 'primary'}" data-action-index="${endpoints.indexOf(item)}">${escapeHtml(item.action.label)}</button>
-                            </div>
-                            <div class="response" id="${item.action.responseId}"></div>
-                        </div>
-                    </article>`;
-            }).join('');
-
-            emptyState.hidden = visible.length !== 0;
-            document.getElementById('endpointTotal').textContent = endpoints.length;
-        }
-
-        function updateCounts() {
-            document.getElementById('countAll').textContent = endpoints.length;
-            document.getElementById('countGet').textContent = endpoints.filter((item) => item.method === 'GET').length;
-            document.getElementById('countPost').textContent = endpoints.filter((item) => item.method === 'POST').length;
-            document.getElementById('countDelete').textContent = endpoints.filter((item) => item.method === 'DELETE').length;
-        }
-
-        async function loadStats() {
-            try {
-                const data = await requestJson('/status');
-                document.getElementById('totalRegs').textContent = Number(data.total_registros || 0).toLocaleString('pt-BR');
-                document.getElementById('apiState').textContent = 'Online';
-                document.getElementById('apiMessage').textContent = data.message || 'API respondendo';
-            } catch (error) {
-                document.getElementById('totalRegs').textContent = '?';
-                document.getElementById('apiState').textContent = 'Erro';
-                document.getElementById('apiMessage').textContent = 'Nao foi possivel consultar /status';
-            }
-        }
-
-        async function pollUpdateStatus(keepPolling) {
-            try {
-                const data = await requestJson('/atualizar/status');
-                document.getElementById('updateState').textContent = data.running ? 'Rodando' : (data.status || 'Idle');
-                document.getElementById('updateMessage').textContent = data.message || 'Sem detalhes';
-                document.getElementById('updateLog').textContent = pretty(data);
-
-                if (data.running || keepPolling) {
-                    window.clearTimeout(updateTimer);
-                    updateTimer = window.setTimeout(() => pollUpdateStatus(false), 2500);
-                } else if (data.status === 'success') {
-                    await loadStats();
-                }
-            } catch (error) {
-                document.getElementById('updateState').textContent = 'Erro';
-                document.getElementById('updateMessage').textContent = 'Falha ao consultar status';
-                document.getElementById('updateLog').textContent = error.message;
-            }
-        }
-
-        document.getElementById('navFilters').addEventListener('click', (event) => {
-            const button = event.target.closest('button[data-filter]');
-            if (!button) return;
-            activeFilter = button.dataset.filter;
-            document.querySelectorAll('#navFilters button').forEach((item) => item.classList.toggle('active', item === button));
-            renderEndpoints();
-        });
-
-        document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const term = document.getElementById('clientSearchInput').value.trim();
-            if (!term) {
-                document.getElementById('clientSearchInput').focus();
-                return;
-            }
-            await runUnifiedSearch(term);
-        });
-
-        document.getElementById('themeToggleBtn').addEventListener('click', () => {
-            const isDark = document.body.classList.toggle('theme-dark');
-            localStorage.setItem('painel-theme', isDark ? 'dark' : 'light');
-            document.getElementById('themeToggleBtn').textContent = isDark ? 'Modo claro' : 'Modo escuro';
-        });
-
-        document.getElementById('toggleEndpointsBtn').addEventListener('click', () => {
-            const workspace = document.querySelector('.workspace');
-            const isOpen = workspace.classList.toggle('show');
-            document.getElementById('toggleEndpointsBtn').textContent = isOpen ? 'Ocultar endpoints' : 'Endpoints';
-            if (isOpen) {
-                workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        });
-
-        document.addEventListener('click', (event) => {
-            const copyButton = event.target.closest('button[data-copy-link]');
-            if (copyButton) {
-                const link = copyButton.dataset.copyLink;
-                copyText(link).then(() => {
-                    const original = copyButton.innerHTML;
-                    copyButton.innerHTML = checkIcon();
-                    copyButton.classList.add('copied');
-                    window.setTimeout(() => {
-                        copyButton.innerHTML = original;
-                        copyButton.classList.remove('copied');
-                    }, 1400);
-                }).catch(() => {
-                    alert('Nao foi possivel copiar automaticamente. Link: ' + link);
-                });
-                return;
-            }
-
-            const createButton = event.target.closest('button[data-create-maxplayer]');
-            if (createButton) {
-                const domainId = document.getElementById('createMaxDomain')?.value;
-                const iptvUser = document.getElementById('createMaxUser')?.value.trim();
-                const iptvPass = document.getElementById('createMaxPass')?.value.trim();
-                if (!domainId || !iptvUser || !iptvPass) {
-                    alert('Selecione um dominio e confirme usuario/senha IPTV.');
-                    return;
-                }
-                if (!confirm('Criar este usuario no MaxPlayer com o dominio selecionado?')) {
-                    return;
-                }
-                createButton.disabled = true;
-                createButton.textContent = 'Criando...';
-                requestJson('/maxplayer/usuario/criar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        domain_id: domainId,
-                        iptv_user: iptvUser,
-                        iptv_pass: iptvPass,
-                        username: iptvUser,
-                        user_password: iptvPass
-                    })
-                }).then(() => {
-                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || iptvUser);
-                }).catch((error) => {
-                    alert(error.message);
-                }).finally(() => {
-                    createButton.disabled = false;
-                    createButton.textContent = 'Criar no MaxPlayer';
-                });
-                return;
-            }
-
-            const editButton = event.target.closest('button[data-edit-max-domain]');
-            if (editButton) {
-                const domainId = document.getElementById('editMaxDomain')?.value;
-                if (!domainId) {
-                    alert('Selecione um dominio.');
-                    return;
-                }
-                if (!confirm('Trocar o dominio desta lista no MaxPlayer?')) {
-                    return;
-                }
-                editButton.disabled = true;
-                editButton.textContent = 'Salvando...';
-                requestJson('/maxplayer/lista/dominio', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        list_id: editButton.dataset.listId,
-                        domain_id: domainId,
-                        new_list_name: editButton.dataset.listName || 'List 1',
-                        iptv_username: editButton.dataset.iptvUser,
-                        iptv_password: editButton.dataset.iptvPass
-                    })
-                }).then(() => {
-                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || editButton.dataset.iptvUser);
-                }).catch((error) => {
-                    alert(error.message);
-                }).finally(() => {
-                    editButton.disabled = false;
-                    editButton.textContent = 'Salvar dominio';
-                });
-                return;
-            }
-
-            const rawButton = event.target.closest('button[data-raw-target]');
-            if (!rawButton) return;
-            const target = document.getElementById(rawButton.dataset.rawTarget);
-            if (!target) return;
-            const isOpen = target.classList.toggle('show');
-            rawButton.textContent = isOpen ? 'Ocultar JSON' : 'Ver JSON';
-        });
-
-        endpointList.addEventListener('click', async (event) => {
-            const toggle = event.target.closest('button[data-toggle]');
-            if (toggle) {
-                const card = toggle.closest('.endpoint-card');
-                const open = card.classList.toggle('open');
-                toggle.textContent = open ? 'Ocultar' : 'Detalhes';
-                return;
-            }
-
-            const actionButton = event.target.closest('button[data-action-index]');
-            if (actionButton) {
-                const endpoint = endpoints[Number(actionButton.dataset.actionIndex)];
-                await handleAction(endpoint.action);
-            }
-        });
-
-        searchInput.addEventListener('input', renderEndpoints);
-        document.getElementById('refreshStatusBtn').addEventListener('click', async () => {
-            await loadStats();
-            await pollUpdateStatus(false);
-        });
-        document.getElementById('runUpdateBtn').addEventListener('click', () => {
-            const action = endpoints.find((item) => item.path === '/atualizar').action;
-            const card = document.querySelector(`[data-index="${endpoints.findIndex((item) => item.path === '/atualizar')}"]`);
-            if (card && !card.classList.contains('open')) {
-                card.classList.add('open');
-                card.querySelector('button[data-toggle]').textContent = 'Ocultar';
-            }
-            handleAction(action);
-        });
-
-        updateCounts();
-        renderEndpoints();
-        if (localStorage.getItem('painel-theme') === 'dark') {
-            document.body.classList.add('theme-dark');
-            document.getElementById('themeToggleBtn').textContent = 'Modo claro';
-        }
-        loadStats();
-        pollUpdateStatus(false);
-    </script>
-</body>
-</html>
-'''
+@app.get("/config/status")
+def config_status(_authenticated: bool = Depends(require_panel_auth)):
+    panel = decode_maxplayer_panel_token() if MAXPLAYER_PANEL_TOKEN else {"group": None, "id": None}
+    return {
+        "status": "ok",
+        "painel_protegido": PANEL_PASSWORD_ENABLED,
+        "tokens": {
+            "painel_best": bool(API_KEY_EXTERNA),
+            "maxplayer_public": bool(MAXPLAYER_API_TOKEN),
+            "maxplayer_panel": bool(MAXPLAYER_PANEL_TOKEN)
+        },
+        "maxplayer": {
+            "group": panel.get("group"),
+            "id": panel.get("id"),
+            "cache_seconds": MAXPLAYER_CACHE_SECONDS,
+            "cache_file": os.path.exists(MAXPLAYER_CACHE_FILE)
+        },
+        "arquivos": {
+            "template": os.path.exists(PAINEL_TEMPLATE),
+            "static": os.path.isdir(STATIC_DIR),
+            "historico": os.path.exists(ACTION_HISTORY_FILE)
+        }
+    }
+
+@app.get("/historico/acoes")
+def historico_acoes(limit: int = 50, _authenticated: bool = Depends(require_panel_auth)):
+    if not os.path.exists(ACTION_HISTORY_FILE):
+        return {"total": 0, "acoes": []}
+
+    try:
+        with open(ACTION_HISTORY_FILE, "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao ler historico: {e}")
+
+    return {
+        "total": len(history),
+        "acoes": history[-max(1, min(limit, 200)):]
+    }
 
 @app.get("/painel", response_class=HTMLResponse)
-def painel():
-    return PAINEL_HTML
+def painel(_authenticated: bool = Depends(require_panel_auth)):
+    with open(PAINEL_TEMPLATE, "r", encoding="utf-8") as template_file:
+        return template_file.read()
 
 @app.post("/atualizar")
 def atualizar():
@@ -2054,7 +391,6 @@ def buscar_cliente(request: SearchRequest):
     Busca um cliente em todas as colunas pelo termo enviado no corpo da requisiÃ§Ã£o.
     Body: { "termo": "valor da busca" }
     """
-    print(f"Recebida busca: {request.termo}")
     if df is None or df.empty:
         raise HTTPException(status_code=503, detail="Dados nÃ£o carregados ou vazios.")
     
@@ -2431,8 +767,8 @@ def reload_data():
 # API EXTERNA - Consulta de Linhas
 # =============================================================================
 
-API_KEY_EXTERNA = "klxMbmr6pWOGO48GNvG746SWnQk_BMl3In4c_9IDpD4"
-API_BASE_URL = "https://api.painel.best/lines/"  # Ajuste para a URL real da API
+API_KEY_EXTERNA = os.getenv("PAINEL_BEST_API_KEY", "")
+API_BASE_URL = os.getenv("PAINEL_BEST_BASE_URL", "https://api.painel.best/lines/")
 
 @app.post("/consultar-linha")
 def consultar_linha_externa(request: SearchRequest):
@@ -2440,6 +776,7 @@ def consultar_linha_externa(request: SearchRequest):
     Consulta a API externa buscando por nÃºmero de telefone.
     Body: { "termo": "5511999999999" }
     """
+    api_key = require_setting(API_KEY_EXTERNA, "PAINEL_BEST_API_KEY")
     telefone = request.termo.strip()
     
     if not telefone:
@@ -2449,7 +786,7 @@ def consultar_linha_externa(request: SearchRequest):
     telefone_limpo = re.sub(r'[^\d]', '', telefone)
     
     headers = {
-        'Api-Key': API_KEY_EXTERNA
+        'Api-Key': api_key
     }
     
     params = {
@@ -2460,11 +797,6 @@ def consultar_linha_externa(request: SearchRequest):
     
     try:
         response = requests.get(API_BASE_URL, headers=headers, params=params, timeout=30)
-        
-        # Debug - log do que foi retornado
-        print(f"API Externa - Status: {response.status_code}")
-        print(f"API Externa - URL: {response.url}")
-        print(f"API Externa - Resposta (primeiros 500 chars): {response.text[:500]}")
         
         if response.status_code == 200:
             try:
@@ -2532,11 +864,13 @@ def consultar_linha_externa_get(telefone: str):
     if not telefone:
         raise HTTPException(status_code=400, detail="Telefone nÃ£o informado")
     
+    api_key = require_setting(API_KEY_EXTERNA, "PAINEL_BEST_API_KEY")
+
     # Remove caracteres nÃ£o numÃ©ricos
     telefone_limpo = re.sub(r'[^\d]', '', telefone)
     
     headers = {
-        'Api-Key': API_KEY_EXTERNA
+        'Api-Key': api_key
     }
     
     params = {
@@ -2547,11 +881,6 @@ def consultar_linha_externa_get(telefone: str):
     
     try:
         response = requests.get(API_BASE_URL, headers=headers, params=params, timeout=30)
-        
-        # Debug - log do que foi retornado
-        print(f"API Externa GET - Status: {response.status_code}")
-        print(f"API Externa GET - URL: {response.url}")
-        print(f"API Externa GET - Resposta (primeiros 500 chars): {response.text[:500]}")
         
         if response.status_code == 200:
             try:
@@ -2614,11 +943,11 @@ def consultar_linha_externa_get(telefone: str):
 # API EXTERNA - MaxPlayer
 # =============================================================================
 
-MAXPLAYER_API_TOKEN = os.getenv("MAXPLAYER_API_TOKEN", "iGQyrhovNMrkrHsPwSbrVtMj")
-MAXPLAYER_PANEL_TOKEN = os.getenv("MAXPLAYER_PANEL_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkZWxldGVQYWdlIjpmYWxzZSwiZW1haWwiOiJzYWNAZ21haWwuY29tIiwiZXhwIjoxNzc5MjIzMTA0LCJncm91cCI6InJlc2VsbGVyIiwiaWQiOiI5MjA2IiwibmVlZHNfb3RwIjpmYWxzZSwib3RwX21ldGhvZCI6IiIsInBhcmVudF9pZCI6IjY5NTAiLCJwZXJtaXNzaW9ucyI6W10sInJlZnJlc2hlZF9hdCI6MTc3ODk2MzkwNCwidXNlcm5hbWUiOiJTVVBPUlRFIDExNDIzMDE3MTcifQ.sjytTP9NiyG4H5ui4yFTmgk66w3Kxm53ksc0QY3hCwE")
+MAXPLAYER_API_TOKEN = os.getenv("MAXPLAYER_API_TOKEN", "")
+MAXPLAYER_PANEL_TOKEN = os.getenv("MAXPLAYER_PANEL_TOKEN", "")
 MAXPLAYER_USERS_URL = "https://api.maxplayer.tv/v3/api/public/users"
 MAXPLAYER_PANEL_BASE_URL = "https://api.maxplayer.tv/v3"
-MAXPLAYER_CACHE_SECONDS = 60
+MAXPLAYER_CACHE_SECONDS = int(os.getenv("MAXPLAYER_CACHE_SECONDS", "300"))
 maxplayer_cache = {
     "loaded_at": 0,
     "users": None
@@ -2642,9 +971,7 @@ def decode_maxplayer_panel_token():
         }
 
 def maxplayer_panel_headers(content_type="application/x-www-form-urlencoded"):
-    token = MAXPLAYER_PANEL_TOKEN.replace("Bearer ", "")
-    if not token:
-        raise HTTPException(status_code=500, detail="MAXPLAYER_PANEL_TOKEN nao configurado.")
+    token = require_setting(MAXPLAYER_PANEL_TOKEN, "MAXPLAYER_PANEL_TOKEN").replace("Bearer ", "")
 
     return {
         "Authorization": f"Bearer {token}",
@@ -2655,6 +982,43 @@ def clear_maxplayer_cache():
     with maxplayer_cache_lock:
         maxplayer_cache["users"] = None
         maxplayer_cache["loaded_at"] = 0
+    if os.path.exists(MAXPLAYER_CACHE_FILE):
+        try:
+            os.remove(MAXPLAYER_CACHE_FILE)
+        except OSError:
+            pass
+
+def read_maxplayer_cache_file():
+    if not os.path.exists(MAXPLAYER_CACHE_FILE):
+        return None
+
+    try:
+        with open(MAXPLAYER_CACHE_FILE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+    except Exception:
+        return None
+
+    loaded_at = cached.get("loaded_at", 0)
+    users = cached.get("users")
+    if not isinstance(users, list):
+        return None
+
+    if time.time() - loaded_at > MAXPLAYER_CACHE_SECONDS:
+        return None
+
+    return users, loaded_at
+
+def write_maxplayer_cache_file(users):
+    ensure_log_dir()
+    with open(MAXPLAYER_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "loaded_at": time.time(),
+                "users": users
+            },
+            f,
+            ensure_ascii=False
+        )
 
 def get_maxplayer_users(force_refresh=False):
     now = time.time()
@@ -2665,8 +1029,17 @@ def get_maxplayer_users(force_refresh=False):
         if users is not None and not force_refresh and now - loaded_at < MAXPLAYER_CACHE_SECONDS:
             return users, True
 
+    if not force_refresh:
+        cached_file = read_maxplayer_cache_file()
+        if cached_file:
+            users, loaded_at = cached_file
+            with maxplayer_cache_lock:
+                maxplayer_cache["users"] = users
+                maxplayer_cache["loaded_at"] = loaded_at
+            return users, True
+
     headers = {
-        "Api-Token": MAXPLAYER_API_TOKEN,
+        "Api-Token": require_setting(MAXPLAYER_API_TOKEN, "MAXPLAYER_API_TOKEN"),
         "Content-Type": "application/x-www-form-urlencoded"
     }
 
@@ -2692,6 +1065,8 @@ def get_maxplayer_users(force_refresh=False):
     with maxplayer_cache_lock:
         maxplayer_cache["users"] = data
         maxplayer_cache["loaded_at"] = time.time()
+
+    write_maxplayer_cache_file(data)
 
     return data, False
 
@@ -2832,11 +1207,43 @@ def criar_usuario_maxplayer(request: MaxplayerCreateRequest):
     if request.fullname:
         payload["fullname"] = request.fullname
 
-    result = maxplayer_panel_post(f"/api/panel/actions/{group}/create-user", payload)
+    try:
+        result = maxplayer_panel_post(f"/api/panel/actions/{group}/create-user", payload)
+        log_action("maxplayer_create_user", "sucesso", {"group": group, "payload": payload, "result": result})
+    except HTTPException as e:
+        log_action("maxplayer_create_user", "erro", {"group": group, "payload": payload, "error": e.detail})
+        raise
+
     return {
         "status": "sucesso",
         "message": "Usuario criado no MaxPlayer.",
         "result": result
+    }
+
+@app.post("/maxplayer/usuario/prevalidar")
+def prevalidar_criacao_maxplayer(request: SearchRequest):
+    data = consulta_cliente_unificada(request)
+    linha = data.get("linha", {}).get("linha", {})
+    maxplayer = data.get("maxplayer", {})
+
+    can_create = (
+        maxplayer.get("status") != "sucesso"
+        and bool(linha.get("usuario"))
+        and linha.get("usuario") != "N/A"
+        and bool(linha.get("senha"))
+        and linha.get("senha") != "N/A"
+    )
+
+    return {
+        "status": "ok",
+        "pode_criar": can_create,
+        "motivo": "Pronto para criar no MaxPlayer." if can_create else "Nao foi possivel montar usuario/senha IPTV ou usuario ja existe.",
+        "sugestao": {
+            "iptv_user": linha.get("usuario"),
+            "iptv_pass": mask_secret(linha.get("senha")),
+            "telefone": data.get("telefone_normalizado")
+        },
+        "resumo": data.get("resumo")
     }
 
 @app.post("/maxplayer/lista/dominio")
@@ -2852,7 +1259,13 @@ def trocar_dominio_lista_maxplayer(request: MaxplayerEditListRequest):
         "iptv_password": request.iptv_password
     }
 
-    result = maxplayer_panel_post(f"/api/panel/actions/{group}/edit-list", payload)
+    try:
+        result = maxplayer_panel_post(f"/api/panel/actions/{group}/edit-list", payload)
+        log_action("maxplayer_edit_list_domain", "sucesso", {"group": group, "payload": payload, "result": result})
+    except HTTPException as e:
+        log_action("maxplayer_edit_list_domain", "erro", {"group": group, "payload": payload, "error": e.detail})
+        raise
+
     return {
         "status": "sucesso",
         "message": "Dominio atualizado no MaxPlayer.",
