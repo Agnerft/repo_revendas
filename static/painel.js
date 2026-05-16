@@ -1,4 +1,4 @@
-const VERSION = '3.0';
+const VERSION = '3.2';
         const endpoints = [
             {
                 method: 'GET',
