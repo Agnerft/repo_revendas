@@ -1389,6 +1389,11 @@ PAINEL_HTML = '''
             return value === undefined || value === null || value === '' ? 'N/A' : value;
         }
 
+        function formatTrialValue(value) {
+            const normalized = String(value || '').toLowerCase();
+            return normalized.includes('sim') ? 'Teste' : 'Cliente';
+        }
+
         function copyIcon(label = 'Copiar link') {
             return `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1564,7 +1569,7 @@ PAINEL_HTML = '''
                 ['Vencimento', detalhe.vencimento],
                 ['Dias restantes', detalhe.dias_restantes],
                 ['Status', detalhe.status_conta],
-                ['Teste', detalhe.e_teste],
+                ['Tipo', formatTrialValue(detalhe.e_teste)],
                 ['Revenda', detalhe.revenda]
             ] : [];
 
@@ -2474,14 +2479,14 @@ def consultar_linha_externa(request: SearchRequest):
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
-                        "status": "âœ… ENCONTRADO",
+                        "status": "ENCONTRADO",
                         "telefone": linha.get('phone', 'N/A'),
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
-                        "e_teste": "Sim" if linha.get('is_trial') else "NÃ£o",
+                        "e_teste": "Sim" if linha.get('is_trial') else "Nao",
                         "criado_em": created_at,
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
@@ -2561,14 +2566,14 @@ def consultar_linha_externa_get(telefone: str):
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
-                        "status": "âœ… ENCONTRADO",
+                        "status": "ENCONTRADO",
                         "telefone": linha.get('phone', 'N/A'),
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
-                        "e_teste": "Sim" if linha.get('is_trial') else "NÃ£o",
+                        "e_teste": "Sim" if linha.get('is_trial') else "Nao",
                         "criado_em": created_at,
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
