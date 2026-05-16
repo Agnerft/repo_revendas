@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+﻿from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -12,7 +12,7 @@ import threading
 import requests
 from typing import Optional
 
-app = FastAPI(title="Serviço de Busca de Revendas")
+app = FastAPI(title="ServiÃ§o de Busca de Revendas")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL_FILE = os.path.join(BASE_DIR, "revendas_consolidadas.xlsx")
@@ -80,7 +80,7 @@ def load_data():
     if os.path.exists(EXCEL_FILE):
         try:
             print(f"Carregando {EXCEL_FILE}...")
-            # Lê todas as colunas como string para facilitar a busca
+            # LÃª todas as colunas como string para facilitar a busca
             df = pd.read_excel(EXCEL_FILE, dtype=str)
             # Preenche NaN com string vazia
             df = df.fillna("")
@@ -90,10 +90,10 @@ def load_data():
             print(f"Erro ao carregar Excel: {e}")
             df = pd.DataFrame()
     else:
-        print(f"Arquivo {EXCEL_FILE} não encontrado.")
+        print(f"Arquivo {EXCEL_FILE} nÃ£o encontrado.")
         df = pd.DataFrame()
 
-# Carrega os dados na inicialização
+# Carrega os dados na inicializaÃ§Ã£o
 def start_update_process():
     """Inicia o atualizador sem bloquear o processo da API."""
     global update_process
@@ -164,525 +164,915 @@ def status():
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
 
+PAINEL_HTML = '''
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Painel de Revendas</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --surface: #101827;
+            --surface-2: #162033;
+            --line: #273449;
+            --text: #eef4ff;
+            --muted: #97a6ba;
+            --soft: #cbd5e1;
+            --green: #18b26b;
+            --green-soft: rgba(24, 178, 107, 0.15);
+            --blue: #3a82f7;
+            --blue-soft: rgba(58, 130, 247, 0.15);
+            --amber: #f59e0b;
+            --amber-soft: rgba(245, 158, 11, 0.14);
+            --red: #ef4444;
+            --red-soft: rgba(239, 68, 68, 0.14);
+            --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 15% 0%, rgba(24, 178, 107, 0.18), transparent 32rem),
+                radial-gradient(circle at 90% 10%, rgba(58, 130, 247, 0.14), transparent 30rem),
+                var(--bg);
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+        }
+
+        button, input {
+            font: inherit;
+        }
+
+        .shell {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            padding: 28px 22px;
+            border-right: 1px solid var(--line);
+            background: rgba(12, 18, 32, 0.88);
+            backdrop-filter: blur(18px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .brand-mark {
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            color: #082013;
+            background: linear-gradient(135deg, #5ee2a0, #54a4ff);
+            font-weight: 900;
+        }
+
+        .brand-title {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.15;
+        }
+
+        .brand-subtitle {
+            margin: 3px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .nav-label {
+            color: #6f7f94;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .nav {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 26px;
+        }
+
+        .nav button {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            color: var(--soft);
+            background: transparent;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .nav button:hover,
+        .nav button.active {
+            color: var(--text);
+            background: var(--surface-2);
+            border-color: var(--line);
+        }
+
+        .nav-count {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .side-note {
+            margin-top: auto;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        main {
+            padding: 30px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 22px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(28px, 4vw, 44px);
+            line-height: 1;
+            letter-spacing: 0;
+        }
+
+        .lead {
+            max-width: 780px;
+            margin: 12px 0 0;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.55;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            min-height: 40px;
+            padding: 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: var(--text);
+            background: var(--surface-2);
+            cursor: pointer;
+            transition: transform .18s ease, border-color .18s ease, background .18s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            border-color: #40516b;
+        }
+
+        .btn.primary {
+            border-color: rgba(24, 178, 107, .45);
+            background: var(--green);
+            color: white;
+            font-weight: 800;
+        }
+
+        .btn.danger {
+            border-color: rgba(239, 68, 68, .5);
+            background: var(--red);
+            color: white;
+            font-weight: 800;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .stat {
+            min-height: 112px;
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(16, 24, 39, .82);
+            box-shadow: var(--shadow);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            margin-top: 12px;
+            font-size: 30px;
+            font-weight: 900;
+        }
+
+        .stat-helper {
+            margin-top: 7px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 18px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(16, 24, 39, .82);
+            box-shadow: var(--shadow);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 16px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .search {
+            width: min(360px, 100%);
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            outline: none;
+            color: var(--text);
+            background: #0b1322;
+        }
+
+        .search:focus,
+        .field input:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 3px rgba(58, 130, 247, 0.14);
+        }
+
+        .endpoint-list {
+            display: grid;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .endpoint-card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #0d1524;
+            overflow: hidden;
+        }
+
+        .endpoint-main {
+            display: grid;
+            grid-template-columns: 96px minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: start;
+            padding: 16px;
+        }
+
+        .method {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 72px;
+            min-height: 28px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 900;
+            color: white;
+        }
+
+        .method.get { background: var(--green); }
+        .method.post { background: var(--blue); }
+        .method.delete { background: var(--red); }
+
+        .endpoint-path {
+            margin: 0 0 6px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 16px;
+            color: white;
+            overflow-wrap: anywhere;
+        }
+
+        .endpoint-desc {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.45;
+            font-size: 14px;
+        }
+
+        .endpoint-body {
+            display: none;
+            border-top: 1px solid var(--line);
+            padding: 16px;
+            background: #0a111f;
+        }
+
+        .endpoint-card.open .endpoint-body {
+            display: grid;
+            gap: 14px;
+        }
+
+        pre {
+            margin: 0;
+            padding: 14px;
+            border: 1px solid #1f2d42;
+            border-radius: 8px;
+            overflow: auto;
+            color: #dbeafe;
+            background: #07101d;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .field {
+            display: grid;
+            gap: 7px;
+        }
+
+        .field label {
+            color: var(--soft);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .field input {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            outline: none;
+            color: var(--text);
+            background: #0b1322;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .response {
+            display: none;
+            padding: 14px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .response.show { display: block; }
+        .response.loading { color: #fef3c7; background: var(--amber-soft); border: 1px solid rgba(245, 158, 11, .35); }
+        .response.success { color: #b7f7d4; background: var(--green-soft); border: 1px solid rgba(24, 178, 107, .36); }
+        .response.error { color: #fecaca; background: var(--red-soft); border: 1px solid rgba(239, 68, 68, .38); }
+
+        .quick-card {
+            padding: 16px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .quick-title {
+            margin: 0;
+            font-size: 15px;
+        }
+
+        .quick-text {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        .update-log {
+            max-height: 360px;
+            overflow: auto;
+        }
+
+        .empty {
+            padding: 26px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        @media (max-width: 1080px) {
+            .shell { grid-template-columns: 1fr; }
+            .sidebar {
+                position: static;
+                height: auto;
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+            .workspace { grid-template-columns: 1fr; }
+            .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        @media (max-width: 720px) {
+            main { padding: 18px; }
+            .topbar,
+            .panel-header {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            .toolbar { justify-content: stretch; }
+            .toolbar .btn { flex: 1; }
+            .status-grid { grid-template-columns: 1fr; }
+            .endpoint-main { grid-template-columns: 1fr; }
+            .endpoint-main .btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">RV</div>
+                <div>
+                    <h2 class="brand-title">Revendas API</h2>
+                    <p class="brand-subtitle">Painel operacional</p>
+                </div>
+            </div>
+
+            <div class="nav-label">Filtros</div>
+            <nav class="nav" id="navFilters">
+                <button class="active" data-filter="all">Todos <span class="nav-count" id="countAll">0</span></button>
+                <button data-filter="GET">GET <span class="nav-count" id="countGet">0</span></button>
+                <button data-filter="POST">POST <span class="nav-count" id="countPost">0</span></button>
+                <button data-filter="DELETE">DELETE <span class="nav-count" id="countDelete">0</span></button>
+            </nav>
+
+            <div class="side-note">
+                Use este painel para consultar clientes, listar revendas, recarregar a planilha e acompanhar atualizacoes sem abrir o Postman.
+            </div>
+        </aside>
+
+        <main>
+            <section class="topbar">
+                <div>
+                    <h1>Painel de controle</h1>
+                    <p class="lead">Interface para testar endpoints e operar os dados de revendas com respostas em tempo real.</p>
+                </div>
+                <div class="toolbar">
+                    <button class="btn" id="refreshStatusBtn">Atualizar status</button>
+                    <button class="btn primary" id="runUpdateBtn">Atualizar dados</button>
+                </div>
+            </section>
+
+            <section class="status-grid">
+                <article class="stat">
+                    <div class="stat-label">Registros</div>
+                    <div class="stat-value" id="totalRegs">-</div>
+                    <div class="stat-helper">Carregados do Excel</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">Endpoints</div>
+                    <div class="stat-value" id="endpointTotal">-</div>
+                    <div class="stat-helper">Disponiveis neste painel</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">API</div>
+                    <div class="stat-value" id="apiState">-</div>
+                    <div class="stat-helper" id="apiMessage">Verificando...</div>
+                </article>
+                <article class="stat">
+                    <div class="stat-label">Atualizacao</div>
+                    <div class="stat-value" id="updateState">Idle</div>
+                    <div class="stat-helper" id="updateMessage">Nenhuma execucao ativa</div>
+                </article>
+            </section>
+
+            <section class="workspace">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Endpoints</h2>
+                        <input class="search" id="searchInput" type="search" placeholder="Buscar endpoint ou descricao">
+                    </div>
+                    <div class="endpoint-list" id="endpointList"></div>
+                    <div class="empty" id="emptyState" hidden>Nenhum endpoint encontrado.</div>
+                </div>
+
+                <aside class="panel">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Execucao recente</h2>
+                    </div>
+                    <div class="quick-card">
+                        <p class="quick-title">Status do atualizador</p>
+                        <p class="quick-text">Ao iniciar a atualizacao, o painel acompanha o processo em segundo plano e mostra o retorno mais recente.</p>
+                        <pre class="update-log" id="updateLog">Aguardando acao.</pre>
+                    </div>
+                </aside>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const VERSION = '3.0';
+        const endpoints = [
+            {
+                method: 'GET',
+                path: '/status',
+                description: 'Retorna o status da API e o total de registros carregados.',
+                sample: '{\\n  "message": "API de Busca de Clientes Ativa",\\n  "total_registros": 42860\\n}',
+                action: { type: 'request', label: 'Testar', endpoint: '/status', responseId: 'r-status' }
+            },
+            {
+                method: 'POST',
+                path: '/buscar',
+                description: 'Busca um cliente em todas as colunas pelo termo informado.',
+                sample: 'Body: { "termo": "+5551999999999" }\\n\\nRetorna o primeiro cliente encontrado.',
+                field: { id: 'buscarTermo', label: 'Termo de busca', placeholder: 'Telefone, nome ou ID' },
+                action: { type: 'postTerm', label: 'Buscar', endpoint: '/buscar', inputId: 'buscarTermo', responseId: 'r-buscar' }
+            },
+            {
+                method: 'POST',
+                path: '/filtrar',
+                description: 'Retorna uma lista com todos os clientes encontrados. Bom para busca por data.',
+                sample: 'Body: { "termo": "19/08/2025" }\\n\\nRetorna: [ { ... }, { ... } ]',
+                field: { id: 'filtrarTermo', label: 'Filtro', placeholder: 'Data, nome, telefone ou termo' },
+                action: { type: 'postTerm', label: 'Filtrar', endpoint: '/filtrar', inputId: 'filtrarTermo', responseId: 'r-filtrar' }
+            },
+            {
+                method: 'GET',
+                path: '/reload',
+                description: 'Recarrega os dados do Excel sem reiniciar o servidor.',
+                sample: '{\\n  "message": "Dados recarregados.",\\n  "total_registros": 42860\\n}',
+                action: { type: 'request', label: 'Recarregar', endpoint: '/reload', responseId: 'r-reload' }
+            },
+            {
+                method: 'POST',
+                path: '/atualizar',
+                description: 'Executa o script update_all_revendas.py para atualizar todos os dados.',
+                sample: '{\\n  "message": "Atualizacao iniciada em segundo plano",\\n  "status_url": "/atualizar/status"\\n}',
+                action: { type: 'update', label: 'Atualizar dados', responseId: 'r-atualizar' }
+            },
+            {
+                method: 'GET',
+                path: '/atualizar/status',
+                description: 'Consulta o andamento da atualizacao em segundo plano.',
+                sample: '{\\n  "running": false,\\n  "status": "success",\\n  "message": "Atualizado com sucesso"\\n}',
+                action: { type: 'request', label: 'Ver status', endpoint: '/atualizar/status', responseId: 'r-atualizar-status' }
+            },
+            {
+                method: 'GET',
+                path: '/revenda/adicionar',
+                description: 'Mostra a documentacao para adicionar uma nova revenda.',
+                sample: 'Retorna instrucoes de uso do POST /revenda/adicionar.',
+                action: { type: 'request', label: 'Ver instrucoes', endpoint: '/revenda/adicionar', responseId: 'r-add-doc' }
+            },
+            {
+                method: 'POST',
+                path: '/revenda/adicionar',
+                description: 'Adiciona uma nova revenda ao arquivo de logins.',
+                sample: 'Body: {\\n  "nome": "Revenda XYZ",\\n  "email": "revenda@email.com",\\n  "password": "senha123",\\n  "filename": "opcional.json"\\n}',
+                action: { type: 'manual', label: 'Usar via API', responseId: 'r-add' }
+            },
+            {
+                method: 'POST',
+                path: '/ (alias)',
+                description: 'Alias para /buscar. Busca cliente pelo termo enviado.',
+                sample: 'Body: { "termo": "valor" }\\n\\nRetorna o cliente encontrado.',
+                field: { id: 'aliasTermo', label: 'Termo', placeholder: 'Digite o termo de busca' },
+                action: { type: 'postTerm', label: 'Testar alias', endpoint: '/', inputId: 'aliasTermo', responseId: 'r-alias' }
+            },
+            {
+                method: 'GET',
+                path: '/consultar-linha/{telefone}',
+                description: 'Consulta API externa de linhas pelo numero de telefone.',
+                sample: 'Exemplo: /consultar-linha/5511999999999\\n\\nRetorna dados da linha na API externa.',
+                field: { id: 'linhaTelefone', label: 'Telefone', placeholder: 'Telefone com DDD' },
+                action: { type: 'phone', label: 'Consultar linha', inputId: 'linhaTelefone', responseId: 'r-linha' }
+            },
+            {
+                method: 'GET',
+                path: '/revenda/listar',
+                description: 'Lista todas as revendas cadastradas com total de clientes.',
+                sample: '{\\n  "total": 5,\\n  "revendas": [\\n    { "nome": "...", "email": "...", "total_clientes": 150 }\\n  ]\\n}',
+                action: { type: 'request', label: 'Listar revendas', endpoint: '/revenda/listar', responseId: 'r-listar' }
+            },
+            {
+                method: 'DELETE',
+                path: '/revenda/excluir',
+                description: 'Exclui uma revenda pelo email e remove o arquivo JSON relacionado.',
+                sample: 'Body: { "email": "revenda@email.com" }\\n\\nAtencao: esta acao nao pode ser desfeita.',
+                field: { id: 'deleteEmail', label: 'Email da revenda', placeholder: 'revenda@email.com', type: 'email' },
+                action: { type: 'delete', label: 'Excluir revenda', inputId: 'deleteEmail', responseId: 'r-delete' }
+            }
+        ];
+
+        let activeFilter = 'all';
+        let updateTimer = null;
+
+        const endpointList = document.getElementById('endpointList');
+        const emptyState = document.getElementById('emptyState');
+        const searchInput = document.getElementById('searchInput');
+
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }
+
+        function setResponse(id, state, message) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = 'response show ' + state;
+            el.textContent = message;
+        }
+
+        async function requestJson(endpoint, options = {}) {
+            const separator = endpoint.includes('?') ? '&' : '?';
+            const response = await fetch(endpoint + separator + 'v=' + VERSION, options);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(JSON.stringify(data, null, 2));
+            }
+            return data;
+        }
+
+        function pretty(data) {
+            return JSON.stringify(data, null, 2);
+        }
+
+        async function runRequest(action, method = 'GET') {
+            setResponse(action.responseId, 'loading', 'Carregando...');
+            try {
+                const data = await requestJson(action.endpoint, { method });
+                setResponse(action.responseId, 'success', pretty(data));
+                if (action.endpoint === '/status' || action.endpoint === '/reload') {
+                    await loadStats();
+                }
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runPostTerm(action) {
+            const value = document.getElementById(action.inputId).value.trim();
+            if (!value) {
+                setResponse(action.responseId, 'error', 'Digite um termo para continuar.');
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Buscando...');
+            try {
+                const data = await requestJson(action.endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ termo: value })
+                });
+                setResponse(action.responseId, 'success', pretty(data));
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runPhone(action) {
+            const value = document.getElementById(action.inputId).value.trim();
+            const phone = value.replace(/\\D/g, '');
+            if (!phone) {
+                setResponse(action.responseId, 'error', 'Digite um telefone para continuar.');
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Consultando linha...');
+            try {
+                const data = await requestJson('/consultar-linha/' + phone);
+                setResponse(action.responseId, 'success', pretty(data));
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runDelete(action) {
+            const email = document.getElementById(action.inputId).value.trim();
+            if (!email) {
+                setResponse(action.responseId, 'error', 'Digite o email da revenda.');
+                return;
+            }
+            if (!confirm('Tem certeza que deseja excluir a revenda ' + email + '?\\n\\nEsta acao nao pode ser desfeita.')) {
+                return;
+            }
+            setResponse(action.responseId, 'loading', 'Excluindo revenda...');
+            try {
+                const data = await requestJson('/revenda/excluir', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                setResponse(action.responseId, data.status === 'sucesso' ? 'success' : 'error', pretty(data));
+                if (data.status === 'sucesso') {
+                    document.getElementById(action.inputId).value = '';
+                }
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+            }
+        }
+
+        async function runUpdate(action) {
+            setResponse(action.responseId, 'loading', 'Iniciando atualizacao...');
+            try {
+                const data = await requestJson('/atualizar', { method: 'POST' });
+                setResponse(action.responseId, 'success', pretty(data));
+                document.getElementById('updateLog').textContent = pretty(data);
+                await pollUpdateStatus(true);
+            } catch (error) {
+                setResponse(action.responseId, 'error', error.message);
+                await pollUpdateStatus(false);
+            }
+        }
+
+        function runManual(action) {
+            setResponse(action.responseId, 'loading', 'Este endpoint precisa de nome, email, senha e filename opcional. Use um cliente HTTP para enviar o JSON completo.');
+        }
+
+        async function handleAction(action) {
+            if (action.type === 'request') return runRequest(action);
+            if (action.type === 'postTerm') return runPostTerm(action);
+            if (action.type === 'phone') return runPhone(action);
+            if (action.type === 'delete') return runDelete(action);
+            if (action.type === 'update') return runUpdate(action);
+            return runManual(action);
+        }
+
+        function renderEndpoints() {
+            const term = searchInput.value.trim().toLowerCase();
+            const visible = endpoints.filter((item) => {
+                const matchesFilter = activeFilter === 'all' || item.method === activeFilter;
+                const content = (item.method + ' ' + item.path + ' ' + item.description).toLowerCase();
+                return matchesFilter && content.includes(term);
+            });
+
+            endpointList.innerHTML = visible.map((item, index) => {
+                const field = item.field ? `
+                    <div class="field">
+                        <label for="${item.field.id}">${escapeHtml(item.field.label)}</label>
+                        <input id="${item.field.id}" type="${item.field.type || 'text'}" placeholder="${escapeHtml(item.field.placeholder)}">
+                    </div>` : '';
+                return `
+                    <article class="endpoint-card" data-index="${endpoints.indexOf(item)}">
+                        <div class="endpoint-main">
+                            <span class="method ${item.method.toLowerCase()}">${item.method}</span>
+                            <div>
+                                <h3 class="endpoint-path">${escapeHtml(item.path)}</h3>
+                                <p class="endpoint-desc">${escapeHtml(item.description)}</p>
+                            </div>
+                            <button class="btn" data-toggle="${index}">Detalhes</button>
+                        </div>
+                        <div class="endpoint-body">
+                            <pre>${escapeHtml(item.sample)}</pre>
+                            ${field}
+                            <div class="actions">
+                                <button class="btn ${item.method === 'DELETE' ? 'danger' : 'primary'}" data-action-index="${endpoints.indexOf(item)}">${escapeHtml(item.action.label)}</button>
+                            </div>
+                            <div class="response" id="${item.action.responseId}"></div>
+                        </div>
+                    </article>`;
+            }).join('');
+
+            emptyState.hidden = visible.length !== 0;
+            document.getElementById('endpointTotal').textContent = endpoints.length;
+        }
+
+        function updateCounts() {
+            document.getElementById('countAll').textContent = endpoints.length;
+            document.getElementById('countGet').textContent = endpoints.filter((item) => item.method === 'GET').length;
+            document.getElementById('countPost').textContent = endpoints.filter((item) => item.method === 'POST').length;
+            document.getElementById('countDelete').textContent = endpoints.filter((item) => item.method === 'DELETE').length;
+        }
+
+        async function loadStats() {
+            try {
+                const data = await requestJson('/status');
+                document.getElementById('totalRegs').textContent = Number(data.total_registros || 0).toLocaleString('pt-BR');
+                document.getElementById('apiState').textContent = 'Online';
+                document.getElementById('apiMessage').textContent = data.message || 'API respondendo';
+            } catch (error) {
+                document.getElementById('totalRegs').textContent = '?';
+                document.getElementById('apiState').textContent = 'Erro';
+                document.getElementById('apiMessage').textContent = 'Nao foi possivel consultar /status';
+            }
+        }
+
+        async function pollUpdateStatus(keepPolling) {
+            try {
+                const data = await requestJson('/atualizar/status');
+                document.getElementById('updateState').textContent = data.running ? 'Rodando' : (data.status || 'Idle');
+                document.getElementById('updateMessage').textContent = data.message || 'Sem detalhes';
+                document.getElementById('updateLog').textContent = pretty(data);
+
+                if (data.running || keepPolling) {
+                    window.clearTimeout(updateTimer);
+                    updateTimer = window.setTimeout(() => pollUpdateStatus(false), 2500);
+                } else if (data.status === 'success') {
+                    await loadStats();
+                }
+            } catch (error) {
+                document.getElementById('updateState').textContent = 'Erro';
+                document.getElementById('updateMessage').textContent = 'Falha ao consultar status';
+                document.getElementById('updateLog').textContent = error.message;
+            }
+        }
+
+        document.getElementById('navFilters').addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-filter]');
+            if (!button) return;
+            activeFilter = button.dataset.filter;
+            document.querySelectorAll('#navFilters button').forEach((item) => item.classList.toggle('active', item === button));
+            renderEndpoints();
+        });
+
+        endpointList.addEventListener('click', async (event) => {
+            const toggle = event.target.closest('button[data-toggle]');
+            if (toggle) {
+                const card = toggle.closest('.endpoint-card');
+                const open = card.classList.toggle('open');
+                toggle.textContent = open ? 'Ocultar' : 'Detalhes';
+                return;
+            }
+
+            const actionButton = event.target.closest('button[data-action-index]');
+            if (actionButton) {
+                const endpoint = endpoints[Number(actionButton.dataset.actionIndex)];
+                await handleAction(endpoint.action);
+            }
+        });
+
+        searchInput.addEventListener('input', renderEndpoints);
+        document.getElementById('refreshStatusBtn').addEventListener('click', async () => {
+            await loadStats();
+            await pollUpdateStatus(false);
+        });
+        document.getElementById('runUpdateBtn').addEventListener('click', () => {
+            const action = endpoints.find((item) => item.path === '/atualizar').action;
+            const card = document.querySelector(`[data-index="${endpoints.findIndex((item) => item.path === '/atualizar')}"]`);
+            if (card && !card.classList.contains('open')) {
+                card.classList.add('open');
+                card.querySelector('button[data-toggle]').textContent = 'Ocultar';
+            }
+            handleAction(action);
+        });
+
+        updateCounts();
+        renderEndpoints();
+        loadStats();
+        pollUpdateStatus(false);
+    </script>
+</body>
+</html>
+'''
+
 @app.get("/painel", response_class=HTMLResponse)
 def painel():
-    return """
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-        <meta charset="UTF-8">
-        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-        <meta http-equiv="Pragma" content="no-cache">
-        <meta http-equiv="Expires" content="0">
-        <title>Painel API - Revendas</title>
-        <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-                color: #e2e8f0;
-                min-height: 100vh;
-                padding: 40px 20px;
-            }
-            .container { max-width: 1200px; margin: 0 auto; }
-            h1 {
-                text-align: center;
-                margin-bottom: 10px;
-                font-size: 2.5rem;
-                background: linear-gradient(90deg, #22c55e, #3b82f6);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .subtitle { text-align: center; color: #94a3b8; margin-bottom: 40px; }
-            .grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-                gap: 20px;
-            }
-            .card {
-                background: #1e293b;
-                border-radius: 16px;
-                padding: 24px;
-                border: 1px solid #334155;
-                transition: transform 0.2s, box-shadow 0.2s;
-            }
-            .card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
-            .method {
-                display: inline-block;
-                padding: 4px 12px;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: bold;
-                text-transform: uppercase;
-                margin-bottom: 12px;
-            }
-            .get { background: #22c55e; color: #fff; }
-            .post { background: #3b82f6; color: #fff; }
-            .endpoint {
-                font-family: 'Courier New', monospace;
-                font-size: 16px;
-                color: #f8fafc;
-                margin-bottom: 12px;
-                word-break: break-all;
-            }
-            .description { color: #94a3b8; font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
-            .code-block {
-                background: #0f172a;
-                border-radius: 8px;
-                padding: 16px;
-                font-family: 'Courier New', monospace;
-                font-size: 13px;
-                overflow-x: auto;
-                border-left: 3px solid #22c55e;
-            }
-            .code-block pre { margin: 0; color: #e2e8f0; }
-            .status-bar {
-                background: #0f172a;
-                border-radius: 12px;
-                padding: 20px;
-                margin-bottom: 30px;
-                display: flex;
-                justify-content: space-around;
-                flex-wrap: wrap;
-                gap: 20px;
-                border: 1px solid #334155;
-            }
-            .stat { text-align: center; }
-            .stat-value { font-size: 2rem; font-weight: bold; color: #22c55e; }
-            .stat-label { color: #64748b; font-size: 14px; }
-            .test-btn {
-                background: #22c55e;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 8px;
-                color: white;
-                cursor: pointer;
-                font-size: 14px;
-                margin-top: 12px;
-                transition: opacity 0.2s;
-            }
-            .test-btn:hover { opacity: 0.9; }
-            .response {
-                margin-top: 12px;
-                padding: 12px;
-                border-radius: 8px;
-                font-size: 13px;
-                display: none;
-                white-space: pre-wrap;
-                word-break: break-word;
-            }
-            .response.show { display: block; }
-            .response.success { background: #064e3b; color: #6ee7b7; }
-            .response.error { background: #450a0a; color: #fca5a5; }
-            .input-group { margin-top: 12px; }
-            .input-group input {
-                width: 100%;
-                padding: 10px;
-                border-radius: 6px;
-                border: 1px solid #475569;
-                background: #0f172a;
-                color: #e2e8f0;
-                font-size: 14px;
-            }
-            .input-group input:focus { outline: none; border-color: #22c55e; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🚀 API de Revendas</h1>
-            <p class="subtitle">Documentação completa dos endpoints disponíveis</p>
-            
-            <div class="status-bar">
-                <div class="stat">
-                    <div class="stat-value" id="totalRegs">-</div>
-                    <div class="stat-label">Total de Registros</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">11</div>
-                    <div class="stat-label">Endpoints</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">✅</div>
-                    <div class="stat-label">Status</div>
-                </div>
-            </div>
-
-            <div class="grid">
-                <!-- GET /status -->
-                <div class="card">
-                    <span class="method get">GET</span>
-                    <div class="endpoint">/status</div>
-                    <div class="description">Retorna status da API e total de registros carregados</div>
-                    <div class="code-block"><pre>{
-  "message": "API de Busca de Clientes Ativa",
-  "total_registros": 42860
-}</pre></div>
-                    <button class="test-btn" onclick="testGet('/status', 'r1')">Testar</button>
-                    <div class="response" id="r1"></div>
-                </div>
-
-                <!-- POST /buscar -->
-                <div class="card">
-                    <span class="method post">POST</span>
-                    <div class="endpoint">/buscar</div>
-                    <div class="description">Busca um cliente em todas as colunas pelo termo. Suporta comandos especiais como "atualizar"</div>
-                    <div class="code-block"><pre>Body: { "termo": "+5551999999999" }
-
-Retorna: {
-  "Revenda": "Nome",
-  "nome": "Cliente",
-  "telefone": "+55...",
-  "data_expiracao": "..."
-}</pre></div>
-                    <div class="input-group">
-                        <input type="text" id="in1" placeholder="Telefone, nome ou ID...">
-                    </div>
-                    <button class="test-btn" onclick="testPost('/buscar', 'in1', 'r2')">Testar</button>
-                    <div class="response" id="r2"></div>
-                </div>
-
-                <!-- POST /filtrar -->
-                <div class="card">
-                    <span class="method post">POST</span>
-                    <div class="endpoint">/filtrar</div>
-                    <div class="description">Retorna LISTA com todos os clientes encontrados. Ideal para buscar por data</div>
-                    <div class="code-block"><pre>Body: { "termo": "19/08/2025" }
-
-Retorna: [ { ... }, { ... } ] // array</pre></div>
-                    <div class="input-group">
-                        <input type="text" id="in2" placeholder="Data ou termo...">
-                    </div>
-                    <button class="test-btn" onclick="testPost('/filtrar', 'in2', 'r3')">Testar</button>
-                    <div class="response" id="r3"></div>
-                </div>
-
-                <!-- GET /reload -->
-                <div class="card">
-                    <span class="method get">GET</span>
-                    <div class="endpoint">/reload</div>
-                    <div class="description">Recarrega os dados do Excel sem reiniciar o servidor</div>
-                    <div class="code-block"><pre>Retorna: {
-  "message": "Dados recarregados.",
-  "total_registros": 42860
-}</pre></div>
-                    <button class="test-btn" onclick="testGet('/reload', 'r4')">Recarregar</button>
-                    <div class="response" id="r4"></div>
-                </div>
-
-                <!-- POST /atualizar -->
-                <div class="card">
-                    <span class="method post">POST</span>
-                    <div class="endpoint">/atualizar</div>
-                    <div class="description">Executa o script update_all_revendas.py para atualizar todos os dados (pode demorar)</div>
-                    <div class="code-block"><pre>Retorna: {
-  "message": "Atualizado com sucesso",
-  "total": 42860
-}</pre></div>
-                    <button class="test-btn" onclick="testGet('/atualizar', 'r5', 'POST')">Atualizar Dados</button>
-                    <div class="response" id="r5"></div>
-                </div>
-
-                <!-- GET /revenda/adicionar -->
-                <div class="card">
-                    <span class="method get">GET</span>
-                    <div class="endpoint">/revenda/adicionar</div>
-                    <div class="description">Documentação do endpoint para adicionar revenda</div>
-                    <div class="code-block"><pre>Retorna: instruções de uso do POST</pre></div>
-                    <button class="test-btn" onclick="testGet('/revenda/adicionar', 'r6')">Ver</button>
-                    <div class="response" id="r6"></div>
-                </div>
-
-                <!-- POST /revenda/adicionar -->
-                <div class="card">
-                    <span class="method post">POST</span>
-                    <div class="endpoint">/revenda/adicionar</div>
-                    <div class="description">Adiciona uma nova revenda ao arquivo de logins</div>
-                    <div class="code-block"><pre>Body: {
-  "nome": "Revenda XYZ",
-  "email": "revenda@email.com",
-  "password": "senha123",
-  "filename": "opcional.json"
-}</pre></div>
-                    <button class="test-btn" onclick="alert('Use Postman ou curl para testar este endpoint')">Adicionar Revenda</button>
-                </div>
-
-                <!-- POST / (alias) -->
-                <div class="card">
-                    <span class="method post">POST</span>
-                    <div class="endpoint">/ (alias)</div>
-                    <div class="description">Alias para /buscar. Busca cliente pelo termo enviado</div>
-                    <div class="code-block"><pre>Body: { "termo": "valor" }
-
-Retorna: objeto do cliente encontrado</pre></div>
-                    <div class="input-group">
-                        <input type="text" id="in3" placeholder="Digite o termo de busca...">
-                    </div>
-                    <button class="test-btn" onclick="testPost('/', 'in3', 'r7')">Testar</button>
-                    <div class="response" id="r7"></div>
-                </div>
-
-                <!-- GET /consultar-linha/{telefone} -->
-                <div class="card">
-                    <span class="method get">GET</span>
-                    <div class="endpoint">/consultar-linha/{telefone}</div>
-                    <div class="description">Consulta API externa de linhas pelo número de telefone</div>
-                    <div class="code-block"><pre>Ex: /consultar-linha/5511999999999
-
-Headers: Api-Key: ***
-Retorna: dados da linha na API externa</pre></div>
-                    <div class="input-group">
-                        <input type="text" id="in4" placeholder="Telefone com DDD...">
-                    </div>
-                    <button class="test-btn" onclick="testConsultarLinha()">Consultar</button>
-                    <div class="response" id="r8"></div>
-                </div>
-
-                <!-- GET /revenda/listar -->
-                <div class="card">
-                    <span class="method get">GET</span>
-                    <div class="endpoint">/revenda/listar</div>
-                    <div class="description">Lista todas as revendas cadastradas com total de clientes</div>
-                    <div class="code-block"><pre>Retorna: {
-  "total": 5,
-  "revendas": [
-    { "nome": "...", "email": "...", "total_clientes": 150 }
-  ]
-}</pre></div>
-                    <button class="test-btn" onclick="testGet('/revenda/listar', 'r9')">Listar Revendas</button>
-                    <div class="response" id="r9"></div>
-                </div>
-
-                <!-- DELETE /revenda/excluir -->
-                <div class="card">
-                    <span class="method" style="background: #ef4444; color: #fff;">DELETE</span>
-                    <div class="endpoint">/revenda/excluir</div>
-                    <div class="description">Exclui uma revenda pelo email</div>
-                    <div class="code-block"><pre>Body: { "email": "revenda@email.com" }
-
-⚠️ Atenção: Remove também o arquivo JSON</pre></div>
-                    <div class="input-group">
-                        <input type="email" id="in5" placeholder="Email da revenda...">
-                    </div>
-                    <button class="test-btn" onclick="testDeleteRevenda()" style="background: #ef4444;">🗑️ Excluir Revenda</button>
-                    <div class="response" id="r10"></div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            // Versão do painel para forçar refresh
-            const PAINEL_VERSION = '2.0';
-            
-            // Carrega total de registros ao iniciar
-            async function loadStats() {
-                try {
-                    const res = await fetch('/status?v=' + PAINEL_VERSION);
-                    const data = await res.json();
-                    document.getElementById('totalRegs').textContent = data.total_registros;
-                } catch (e) {
-                    document.getElementById('totalRegs').textContent = '?';
-                }
-            }
-            loadStats();
-
-            // Garante que as funções estão no escopo global
-            window.testGet = async function(endpoint, respId, method) {
-                const respDiv = document.getElementById(respId);
-                if (!respDiv) {
-                    console.error('Elemento não encontrado:', respId);
-                    return;
-                }
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Carregando...';
-                
-                try {
-                    const res = await fetch(endpoint + '?v=' + PAINEL_VERSION, { method: method || 'GET' });
-                    const data = await res.json();
-                    respDiv.className = 'response show success';
-                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            };
-
-            window.testPost = async function(endpoint, inputId, respId) {
-                const termo = document.getElementById(inputId)?.value;
-                const respDiv = document.getElementById(respId);
-                
-                if (!respDiv) {
-                    console.error('Elemento não encontrado:', respId);
-                    return;
-                }
-                
-                if (!termo) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Digite um termo de busca';
-                    return;
-                }
-                
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Buscando...';
-                
-                try {
-                    const res = await fetch(endpoint + '?v=' + PAINEL_VERSION, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ termo })
-                    });
-                    const data = await res.json();
-                    respDiv.className = 'response show success';
-                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            };
-
-            window.testConsultarLinha = async function() {
-                const telefone = document.getElementById('in4')?.value.trim();
-                const respDiv = document.getElementById('r8');
-                
-                if (!respDiv) return;
-                
-                if (!telefone) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Digite um telefone';
-                    return;
-                }
-                
-                const telefoneLimpo = telefone.replace(/\\D/g, '');
-                
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Consultando API externa...';
-                
-                try {
-                    const res = await fetch('/consultar-linha/' + telefoneLimpo + '?v=' + PAINEL_VERSION);
-                    const data = await res.json();
-                    respDiv.className = 'response show success';
-                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            };
-
-            window.testDeleteRevenda = async function() {
-                const email = document.getElementById('in5')?.value.trim();
-                const respDiv = document.getElementById('r10');
-                
-                if (!respDiv) return;
-                
-                if (!email) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Digite o email da revenda';
-                    return;
-                }
-                
-                if (!confirm('⚠️ Tem certeza que deseja excluir a revenda: ' + email + '?\n\nEsta ação não pode ser desfeita!')) {
-                    return;
-                }
-                
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Excluindo revenda...';
-                
-                try {
-                    const res = await fetch('/revenda/excluir?v=' + PAINEL_VERSION, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: email })
-                    });
-                    const data = await res.json();
-                    
-                    if (data.status === 'sucesso') {
-                        respDiv.className = 'response show success';
-                        respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                        document.getElementById('in5').value = '';
-                    } else {
-                        respDiv.className = 'response show error';
-                        respDiv.textContent = '❌ ' + JSON.stringify(data, null, 2);
-                    }
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            };
-        </script + e.message;
-                }
-            }
-
-            async function testConsultarLinha() {
-                const telefone = document.getElementById('in4').value.trim();
-                const respDiv = document.getElementById('r8');
-                
-                if (!telefone) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Digite um telefone';
-                    return;
-                }
-                
-                // Remove caracteres não numéricos
-                const telefoneLimpo = telefone.replace(/\\D/g, '');
-                
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Consultando API externa...';
-                
-                try {
-                    const res = await fetch('/consultar-linha/' + telefoneLimpo);
-                    const data = await res.json();
-                    respDiv.className = 'response show success';
-                    respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            }
-
-            async function testDeleteRevenda() {
-                const email = document.getElementById('in5').value.trim();
-                const respDiv = document.getElementById('r10');
-                
-                if (!email) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Digite o email da revenda';
-                    return;
-                }
-                
-                // Confirmação antes de excluir
-                if (!confirm('⚠️ Tem certeza que deseja excluir a revenda: ' + email + '?\n\nEsta ação não pode ser desfeita!')) {
-                    return;
-                }
-                
-                respDiv.className = 'response show';
-                respDiv.textContent = '⏳ Excluindo revenda...';
-                
-                try {
-                    const res = await fetch('/revenda/excluir', {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: email })
-                    });
-                    const data = await res.json();
-                    
-                    if (data.status === 'sucesso') {
-                        respDiv.className = 'response show success';
-                        respDiv.textContent = '✅ ' + JSON.stringify(data, null, 2);
-                        document.getElementById('in5').value = ''; // Limpa o campo
-                    } else {
-                        respDiv.className = 'response show error';
-                        respDiv.textContent = '❌ ' + JSON.stringify(data, null, 2);
-                    }
-                } catch (e) {
-                    respDiv.className = 'response show error';
-                    respDiv.textContent = '❌ Erro: ' + e.message;
-                }
-            }
-        </script>
-    </body>
-    </html>
-    """
-
-
+    return PAINEL_HTML
 
 @app.post("/atualizar")
 def atualizar():
@@ -733,12 +1123,12 @@ def read_root_post(request: SearchRequest):
 @app.post("/buscar")
 def buscar_cliente(request: SearchRequest):
     """
-    Busca um cliente em todas as colunas pelo termo enviado no corpo da requisição.
+    Busca um cliente em todas as colunas pelo termo enviado no corpo da requisiÃ§Ã£o.
     Body: { "termo": "valor da busca" }
     """
     print(f"Recebida busca: {request.termo}")
     if df is None or df.empty:
-        raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
+        raise HTTPException(status_code=503, detail="Dados nÃ£o carregados ou vazios.")
     
     q = request.termo
     if not q:
@@ -746,7 +1136,7 @@ def buscar_cliente(request: SearchRequest):
     
     termo = q.lower().strip()
     
-    # --- COMANDO INTERNO DE ATUALIZAÇÃO ---
+    # --- COMANDO INTERNO DE ATUALIZAÃ‡ÃƒO ---
     if termo == "atualizar":
         response = atualizar()
         status_code = getattr(response, "status_code", 202)
@@ -759,62 +1149,62 @@ def buscar_cliente(request: SearchRequest):
             "data_expiracao": "Consulte /atualizar/status"
         }
     # Remove o sinal de '+' se existir (ex: '+55...' -> '55...')
-    # ATENÇÃO: Como agora os dados no Excel têm '+', não devemos remover o '+' da busca se o usuário mandar
-    # Se o usuário mandar +55... e no banco está +55..., deve casar.
-    # Se o usuário mandar 55... e no banco está +55..., o contains não vai casar direto se for exato,
-    # mas '55...' está contido em '+55...', então contains funciona.
-    # O problema é se removermos o '+' da busca (+55 -> 55), e no banco é +55.
-    # 55 está em +55? Sim.
-    # Mas se a lógica anterior removia, por que falhava?
-    # Talvez o usuário mande +555185216088.
-    # Código remove + -> 555185216088.
+    # ATENÃ‡ÃƒO: Como agora os dados no Excel tÃªm '+', nÃ£o devemos remover o '+' da busca se o usuÃ¡rio mandar
+    # Se o usuÃ¡rio mandar +55... e no banco estÃ¡ +55..., deve casar.
+    # Se o usuÃ¡rio mandar 55... e no banco estÃ¡ +55..., o contains nÃ£o vai casar direto se for exato,
+    # mas '55...' estÃ¡ contido em '+55...', entÃ£o contains funciona.
+    # O problema Ã© se removermos o '+' da busca (+55 -> 55), e no banco Ã© +55.
+    # 55 estÃ¡ em +55? Sim.
+    # Mas se a lÃ³gica anterior removia, por que falhava?
+    # Talvez o usuÃ¡rio mande +555185216088.
+    # CÃ³digo remove + -> 555185216088.
     # Banco tem +555185216088 (se foi atualizado corretamente).
-    # '555185216088' está em '+555185216088'? Sim.
-    # Então deveria funcionar.
-    # Mas vamos garantir que a busca seja mais flexível: buscar com e sem o +
+    # '555185216088' estÃ¡ em '+555185216088'? Sim.
+    # EntÃ£o deveria funcionar.
+    # Mas vamos garantir que a busca seja mais flexÃ­vel: buscar com e sem o +
     
     # Se o termo tem +, vamos tentar buscar exatamente como veio primeiro
-    # Se não encontrar, tentamos sem o +
+    # Se nÃ£o encontrar, tentamos sem o +
     
     mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo, regex=False, na=False)).any(axis=1)
     
-    # Se não achou e tem +, tenta sem o +
+    # Se nÃ£o achou e tem +, tenta sem o +
     if not mask.any() and "+" in termo:
         termo_sem_plus = termo.replace("+", "")
         mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo_sem_plus, regex=False, na=False)).any(axis=1)
     
-    # Se não achou e NÃO tem +, tenta COM o + (caso o usuário mande sem e no banco tenha)
+    # Se nÃ£o achou e NÃƒO tem +, tenta COM o + (caso o usuÃ¡rio mande sem e no banco tenha)
     if not mask.any() and "+" not in termo and termo.isdigit():
          termo_com_plus = "+" + termo
          mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo_com_plus, regex=False, na=False)).any(axis=1)
          
-    # Se ainda não achou, e o termo começa com 55 (DDI Brasil), tenta sem o 55
-    # Ex: Busca +5551... mas no banco está +51...
+    # Se ainda nÃ£o achou, e o termo comeÃ§a com 55 (DDI Brasil), tenta sem o 55
+    # Ex: Busca +5551... mas no banco estÃ¡ +51...
     if not mask.any() and "55" in termo:
-        # Tenta remover +55 ou apenas 55 do início
+        # Tenta remover +55 ou apenas 55 do inÃ­cio
         termo_sem_ddi = termo.replace("+55", "").replace("55", "", 1)
         # Se ficou vazio ou muito curto, ignora
         if len(termo_sem_ddi) > 4:
              mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo_sem_ddi, regex=False, na=False)).any(axis=1)
 
-    # BUSCA ROBUSTA POR SUFIXO (ÚLTIMA TENTATIVA)
-    # Se ainda não encontrou, vamos comparar apenas os DÍGITOS.
-    # Se o usuário mandou um número com pelo menos 8 dígitos,
-    # verificamos se esses dígitos finais existem em algum telefone do banco.
+    # BUSCA ROBUSTA POR SUFIXO (ÃšLTIMA TENTATIVA)
+    # Se ainda nÃ£o encontrou, vamos comparar apenas os DÃGITOS.
+    # Se o usuÃ¡rio mandou um nÃºmero com pelo menos 8 dÃ­gitos,
+    # verificamos se esses dÃ­gitos finais existem em algum telefone do banco.
     if not mask.any():
         import re
-        # Extrai apenas dígitos da busca
+        # Extrai apenas dÃ­gitos da busca
         digits_busca = re.sub(r'[^\d]', '', termo)
         
-        # Só aplica se tiver pelo menos 8 dígitos (evitar match falso em números curtos)
+        # SÃ³ aplica se tiver pelo menos 8 dÃ­gitos (evitar match falso em nÃºmeros curtos)
         if len(digits_busca) >= 8:
-            # Pega os últimos 8 dígitos (suficiente para identificar unicamente na maioria dos casos)
+            # Pega os Ãºltimos 8 dÃ­gitos (suficiente para identificar unicamente na maioria dos casos)
             sufixo = digits_busca[-8:]
             
-            # Função auxiliar para verificar se o telefone da linha contém esse sufixo
+            # FunÃ§Ã£o auxiliar para verificar se o telefone da linha contÃ©m esse sufixo
             def check_suffix(val):
                 val_str = str(val)
-                # Extrai dígitos do valor da célula
+                # Extrai dÃ­gitos do valor da cÃ©lula
                 val_digits = re.sub(r'[^\d]', '', val_str)
                 return sufixo in val_digits
             
@@ -822,19 +1212,19 @@ def buscar_cliente(request: SearchRequest):
             if 'telefone' in df.columns:
                 mask = df['telefone'].apply(check_suffix)
             else:
-                # Se não tiver coluna telefone explícita, tenta em todas (mais lento)
+                # Se nÃ£o tiver coluna telefone explÃ­cita, tenta em todas (mais lento)
                 mask = df.apply(lambda row: row.astype(str).apply(lambda x: sufixo in re.sub(r'[^\d]', '', x)).any(), axis=1)
 
     resultados = df[mask]
     
-    # Converte para lista de dicionários
+    # Converte para lista de dicionÃ¡rios
     lista_resultados = resultados.to_dict(orient="records")
     
     if lista_resultados:
         # Pega o primeiro resultado
         item = lista_resultados[0]
         
-        # Limpeza extra no telefone da resposta (garantir apenas números e adicionar +)
+        # Limpeza extra no telefone da resposta (garantir apenas nÃºmeros e adicionar +)
         if "telefone" in item:
             import re
             phone = str(item["telefone"])
@@ -850,7 +1240,7 @@ def buscar_cliente(request: SearchRequest):
             
         return item
     
-    # Se não encontrar nada, retorna objeto vazio com campos preenchidos com "nao_encontrado"
+    # Se nÃ£o encontrar nada, retorna objeto vazio com campos preenchidos com "nao_encontrado"
     # para evitar erro de mapeamento no BotConversa
     return {
         "Revenda": "nao_encontrado",
@@ -865,7 +1255,7 @@ def buscar_cliente(request: SearchRequest):
 
 @app.get("/revenda/adicionar")
 def adicionar_revenda_get():
-    return {"message": "Para adicionar uma revenda, use o método POST enviando o JSON no corpo da requisição."}
+    return {"message": "Para adicionar uma revenda, use o mÃ©todo POST enviando o JSON no corpo da requisiÃ§Ã£o."}
 
 @app.post("/revenda/adicionar")
 def adicionar_revenda(request: RevendaRequest):
@@ -883,11 +1273,11 @@ def adicionar_revenda(request: RevendaRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao ler arquivo de logins: {e}")
     
-    # Verifica se já existe
+    # Verifica se jÃ¡ existe
     if any(l['email'] == request.email for l in logins):
-        return {"status": "erro", "mensagem": "Revenda com este e-mail já existe."}
+        return {"status": "erro", "mensagem": "Revenda com este e-mail jÃ¡ existe."}
     
-    # Gera filename se não fornecido
+    # Gera filename se nÃ£o fornecido
     filename = request.filename
     if not filename:
         # Normaliza o nome para ser usado no nome do arquivo
@@ -1001,7 +1391,7 @@ def excluir_revenda(request: DeleteRevendaRequest):
     LOGINS_FILE = "revendas_logins.json"
     
     if not os.path.exists(LOGINS_FILE):
-        return {"status": "erro", "mensagem": "Arquivo de logins não encontrado."}
+        return {"status": "erro", "mensagem": "Arquivo de logins nÃ£o encontrado."}
     
     try:
         with open(LOGINS_FILE, 'r', encoding='utf-8') as f:
@@ -1017,21 +1407,21 @@ def excluir_revenda(request: DeleteRevendaRequest):
             break
     
     if not revenda_encontrada:
-        return {"status": "erro", "mensagem": f"Revenda com email {request.email} não encontrada."}
+        return {"status": "erro", "mensagem": f"Revenda com email {request.email} nÃ£o encontrada."}
     
     # Salva o arquivo atualizado
     try:
         with open(LOGINS_FILE, 'w', encoding='utf-8') as f:
             json.dump(logins, f, indent=4, ensure_ascii=False)
         
-        # Também remove o arquivo JSON da revenda se existir
+        # TambÃ©m remove o arquivo JSON da revenda se existir
         filename = revenda_encontrada.get('filename')
         if filename and os.path.exists(filename):
             os.remove(filename)
         
         return {
             "status": "sucesso", 
-            "mensagem": f"Revenda {revenda_encontrada['nome']} excluída com sucesso.",
+            "mensagem": f"Revenda {revenda_encontrada['nome']} excluÃ­da com sucesso.",
             "revenda_removida": revenda_encontrada
         }
     except Exception as e:
@@ -1088,7 +1478,7 @@ def filtrar_clientes(request: SearchRequest):
     Ideal para buscar por data (ex: '19/08/2025').
     """
     if df is None or df.empty:
-        raise HTTPException(status_code=503, detail="Dados não carregados ou vazios.")
+        raise HTTPException(status_code=503, detail="Dados nÃ£o carregados ou vazios.")
     
     q = request.termo
     if not q:
@@ -1119,15 +1509,15 @@ API_BASE_URL = "https://api.painel.best/lines/"  # Ajuste para a URL real da API
 @app.post("/consultar-linha")
 def consultar_linha_externa(request: SearchRequest):
     """
-    Consulta a API externa buscando por número de telefone.
+    Consulta a API externa buscando por nÃºmero de telefone.
     Body: { "termo": "5511999999999" }
     """
     telefone = request.termo.strip()
     
     if not telefone:
-        raise HTTPException(status_code=400, detail="Telefone não informado")
+        raise HTTPException(status_code=400, detail="Telefone nÃ£o informado")
     
-    # Remove caracteres não numéricos para a busca
+    # Remove caracteres nÃ£o numÃ©ricos para a busca
     telefone_limpo = re.sub(r'[^\d]', '', telefone)
     
     headers = {
@@ -1151,24 +1541,24 @@ def consultar_linha_externa(request: SearchRequest):
         if response.status_code == 200:
             try:
                 data = response.json()
-                # Formata a resposta de forma apresentável
+                # Formata a resposta de forma apresentÃ¡vel
                 if data.get('results') and len(data['results']) > 0:
                     linha = data['results'][0]
                     
-                    # Converte timestamps para datas legíveis
+                    # Converte timestamps para datas legÃ­veis
                     from datetime import datetime
                     exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
-                        "status": "✅ ENCONTRADO",
+                        "status": "âœ… ENCONTRADO",
                         "telefone": linha.get('phone', 'N/A'),
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
-                        "e_teste": "Sim" if linha.get('is_trial') else "Não",
+                        "e_teste": "Sim" if linha.get('is_trial') else "NÃ£o",
                         "criado_em": created_at,
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
@@ -1191,7 +1581,7 @@ def consultar_linha_externa(request: SearchRequest):
                 return {
                     "status": "erro",
                     "telefone_buscado": telefone,
-                    "erro": "Resposta não é JSON válido",
+                    "erro": "Resposta nÃ£o Ã© JSON vÃ¡lido",
                     "resposta_raw": response.text[:500]
                 }
         else:
@@ -1212,9 +1602,9 @@ def consultar_linha_externa_get(telefone: str):
     Exemplo: /consultar-linha/5511999999999
     """
     if not telefone:
-        raise HTTPException(status_code=400, detail="Telefone não informado")
+        raise HTTPException(status_code=400, detail="Telefone nÃ£o informado")
     
-    # Remove caracteres não numéricos
+    # Remove caracteres nÃ£o numÃ©ricos
     telefone_limpo = re.sub(r'[^\d]', '', telefone)
     
     headers = {
@@ -1238,24 +1628,24 @@ def consultar_linha_externa_get(telefone: str):
         if response.status_code == 200:
             try:
                 data = response.json()
-                # Formata a resposta de forma apresentável
+                # Formata a resposta de forma apresentÃ¡vel
                 if data.get('results') and len(data['results']) > 0:
                     linha = data['results'][0]
                     
-                    # Converte timestamps para datas legíveis
+                    # Converte timestamps para datas legÃ­veis
                     from datetime import datetime
                     exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
-                        "status": "✅ ENCONTRADO",
+                        "status": "âœ… ENCONTRADO",
                         "telefone": linha.get('phone', 'N/A'),
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
-                        "e_teste": "Sim" if linha.get('is_trial') else "Não",
+                        "e_teste": "Sim" if linha.get('is_trial') else "NÃ£o",
                         "criado_em": created_at,
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
@@ -1278,7 +1668,7 @@ def consultar_linha_externa_get(telefone: str):
                 return {
                     "status": "erro",
                     "telefone_buscado": telefone,
-                    "erro": "Resposta não é JSON válido",
+                    "erro": "Resposta nÃ£o Ã© JSON vÃ¡lido",
                     "resposta_raw": response.text[:500]
                 }
         else:
