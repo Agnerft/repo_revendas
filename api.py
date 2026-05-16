@@ -42,7 +42,7 @@ class RevendaRequest(BaseModel):
 class CredenciaisRevendaRequest(BaseModel):
     email_atual: str
     novo_email: str
-    nova_senha: str
+    nova_senha: Optional[str] = None
 
 def testar_login_gestor(email, password):
     session = requests.Session()
@@ -917,14 +917,15 @@ def atualizar_credenciais_revenda(request: CredenciaisRevendaRequest):
     Atualiza email e senha de uma revenda existente apos validar o novo login no Gestor.
     Mantem o mesmo arquivo JSON da revenda para preservar os dados locais.
     Body: { "email_atual": "...", "novo_email": "...", "nova_senha": "..." }
+    Se nova_senha nao for enviada, reutiliza a senha atual cadastrada.
     """
     LOGINS_FILE = os.path.join(BASE_DIR, "revendas_logins.json")
     email_atual = request.email_atual.strip()
     novo_email = request.novo_email.strip()
     nova_senha = request.nova_senha
 
-    if not email_atual or not novo_email or not nova_senha:
-        raise HTTPException(status_code=400, detail="Informe email_atual, novo_email e nova_senha.")
+    if not email_atual or not novo_email:
+        raise HTTPException(status_code=400, detail="Informe email_atual e novo_email.")
 
     if not os.path.exists(LOGINS_FILE):
         return {"status": "erro", "mensagem": "Arquivo de logins nao encontrado."}
@@ -944,6 +945,13 @@ def atualizar_credenciais_revenda(request: CredenciaisRevendaRequest):
     if revenda_index is None:
         return {"status": "erro", "mensagem": f"Revenda com email {email_atual} nao encontrada."}
 
+    revenda = logins[revenda_index]
+    if nova_senha is None or nova_senha == "":
+        nova_senha = revenda.get("password", "")
+
+    if not nova_senha:
+        raise HTTPException(status_code=400, detail="Informe nova_senha. A revenda encontrada nao tem senha cadastrada.")
+
     email_duplicado = any(
         i != revenda_index and revenda.get("email", "").casefold() == novo_email.casefold()
         for i, revenda in enumerate(logins)
@@ -959,7 +967,6 @@ def atualizar_credenciais_revenda(request: CredenciaisRevendaRequest):
             "detalhe": mensagem_login
         }
 
-    revenda = logins[revenda_index]
     email_anterior = revenda.get("email")
     revenda["email"] = novo_email
     revenda["password"] = nova_senha
