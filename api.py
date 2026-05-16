@@ -927,6 +927,23 @@ PAINEL_HTML = '''
             font-weight: 800;
         }
 
+        .link-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .copy-link {
+            min-height: 32px;
+            padding: 0 10px;
+            border: 1px solid #cfd8e6;
+            border-radius: 8px;
+            color: #263244;
+            background: #fff;
+            cursor: pointer;
+            font-weight: 800;
+        }
+
         .theme-toggle {
             min-width: 122px;
         }
@@ -1016,6 +1033,12 @@ PAINEL_HTML = '''
             background: #18b26b;
             border-color: #18b26b;
             color: #052e16;
+        }
+
+        body.theme-dark .copy-link {
+            color: #e5edf8;
+            background: #0f172a;
+            border-color: #334155;
         }
 
         body.theme-dark .data-row {
@@ -1339,7 +1362,11 @@ PAINEL_HTML = '''
                     ${rows.map((row) => `
                         <div class="data-row">
                             <div class="data-label">${escapeHtml(row[0])}</div>
-                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `<a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>` : escapeHtml(emptyValue(row[1]))}</div>
+                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `
+                                <div class="link-actions">
+                                    <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
+                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}">Copiar link</button>
+                                </div>` : escapeHtml(emptyValue(row[1]))}</div>
                         </div>
                     `).join('')}
                 </div>`;
@@ -1755,6 +1782,21 @@ PAINEL_HTML = '''
         });
 
         document.addEventListener('click', (event) => {
+            const copyButton = event.target.closest('button[data-copy-link]');
+            if (copyButton) {
+                const link = copyButton.dataset.copyLink;
+                navigator.clipboard.writeText(link).then(() => {
+                    const original = copyButton.textContent;
+                    copyButton.textContent = 'Copiado';
+                    window.setTimeout(() => {
+                        copyButton.textContent = original;
+                    }, 1400);
+                }).catch(() => {
+                    alert('Nao foi possivel copiar automaticamente. Link: ' + link);
+                });
+                return;
+            }
+
             const createButton = event.target.closest('button[data-create-maxplayer]');
             if (createButton) {
                 const domainId = document.getElementById('createMaxDomain')?.value;
