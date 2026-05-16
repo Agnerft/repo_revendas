@@ -174,6 +174,10 @@ class MaxplayerEditListRequest(BaseModel):
     iptv_username: str
     iptv_password: str
 
+class MaxplayerFreeCreateRequest(BaseModel):
+    line_id: int
+    domain_id: str
+
 def testar_login_gestor(email, password):
     session = requests.Session()
     session.headers.update({
@@ -303,7 +307,8 @@ def config_status(_authenticated: bool = Depends(require_panel_auth)):
         "tokens": {
             "painel_best": bool(API_KEY_EXTERNA),
             "maxplayer_public": bool(MAXPLAYER_API_TOKEN),
-            "maxplayer_panel": bool(MAXPLAYER_PANEL_TOKEN)
+            "maxplayer_panel": bool(MAXPLAYER_PANEL_TOKEN),
+            "painel_apps": bool(PAINEL_APPS_USERNAME and PAINEL_APPS_PASSWORD)
         },
         "maxplayer": {
             "group": panel.get("group"),
@@ -954,6 +959,16 @@ maxplayer_cache = {
 }
 maxplayer_cache_lock = threading.Lock()
 
+PAINEL_APPS_BASE_URL = os.getenv("PAINEL_APPS_BASE_URL", "https://apps-api.painel.best")
+PAINEL_APPS_USERNAME = os.getenv("PAINEL_APPS_USERNAME", "")
+PAINEL_APPS_PASSWORD = os.getenv("PAINEL_APPS_PASSWORD", "")
+apps_token_cache = {
+    "token": None,
+    "expires_at": 0
+}
+apps_data_cache = {}
+apps_cache_lock = threading.Lock()
+
 def decode_maxplayer_panel_token():
     try:
         token = MAXPLAYER_PANEL_TOKEN.replace("Bearer ", "")
@@ -1019,6 +1034,113 @@ def write_maxplayer_cache_file(users):
             f,
             ensure_ascii=False
         )
+
+def apps_login_token():
+    now = time.time()
+    with apps_cache_lock:
+        token = apps_token_cache["token"]
+        expires_at = apps_token_cache["expires_at"]
+        if token and now < expires_at - 60:
+            return token
+
+    username = require_setting(PAINEL_APPS_USERNAME, "PAINEL_APPS_USERNAME")
+    password = require_setting(PAINEL_APPS_PASSWORD, "PAINEL_APPS_PASSWORD")
+
+    try:
+        response = requests.post(
+            f"{PAINEL_APPS_BASE_URL}/login",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": "https://apps.painel.best",
+                "Referer": "https://apps.painel.best/"
+            },
+            data={"username": username, "password": password},
+            timeout=45
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no Painel Apps: {str(e)}")
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Painel Apps retornou uma resposta que nao e JSON valido.")
+
+    if not response.ok:
+        raise HTTPException(status_code=response.status_code, detail=data.get("detail") or data.get("message") or response.text[:300])
+
+    token = data.get("access_token")
+    if not token:
+        raise HTTPException(status_code=502, detail="Painel Apps nao retornou access_token.")
+
+    with apps_cache_lock:
+        apps_token_cache["token"] = token
+        apps_token_cache["expires_at"] = time.time() + int(data.get("expires_in") or 7200)
+
+    return token
+
+def apps_headers():
+    return {
+        "Authorization": f"Bearer {apps_login_token()}",
+        "Origin": "https://apps.painel.best",
+        "Referer": "https://apps.painel.best/"
+    }
+
+def apps_get(path, cache_key=None):
+    now = time.time()
+    if cache_key:
+        with apps_cache_lock:
+            cached = apps_data_cache.get(cache_key)
+            if cached and now - cached["loaded_at"] < MAXPLAYER_CACHE_SECONDS:
+                return cached["data"], True
+
+    try:
+        response = requests.get(
+            f"{PAINEL_APPS_BASE_URL}{path}",
+            headers=apps_headers(),
+            timeout=60
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no Painel Apps: {str(e)}")
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Painel Apps retornou uma resposta que nao e JSON valido.")
+
+    if not response.ok:
+        raise HTTPException(status_code=response.status_code, detail=data.get("detail") or data.get("message") or response.text[:300])
+
+    if cache_key:
+        with apps_cache_lock:
+            apps_data_cache[cache_key] = {"loaded_at": time.time(), "data": data}
+
+    return data, False
+
+def apps_post(path, payload):
+    try:
+        response = requests.post(
+            f"{PAINEL_APPS_BASE_URL}{path}",
+            headers={**apps_headers(), "Content-Type": "application/json"},
+            json=payload,
+            timeout=60
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no Painel Apps: {str(e)}")
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        data = {"raw": response.text[:500]}
+
+    if not response.ok:
+        raise HTTPException(status_code=response.status_code, detail=data.get("detail") or data.get("message") or data.get("error") or response.text[:300])
+
+    with apps_cache_lock:
+        apps_data_cache.pop("maxplayer_free_users", None)
+        apps_data_cache.pop("apps_lines", None)
+
+    return data
 
 def get_maxplayer_users(force_refresh=False):
     now = time.time()
@@ -1131,6 +1253,83 @@ def format_maxplayer_user(user):
         "usuario": user.get("username"),
         "email": user.get("email"),
         "listas": lists
+    }
+
+def get_apps_lines():
+    lines, from_cache = apps_get("/lines", "apps_lines")
+    if not isinstance(lines, list):
+        raise HTTPException(status_code=502, detail="Resposta inesperada do Painel Apps: era esperada uma lista de linhas.")
+    return lines, from_cache
+
+def get_maxplayer_free_users():
+    users, from_cache = apps_get("/max-player/users", "maxplayer_free_users")
+    if not isinstance(users, list):
+        raise HTTPException(status_code=502, detail="Resposta inesperada do MaxPlayer Free: era esperada uma lista de usuarios.")
+    return users, from_cache
+
+def get_maxplayer_free_domains():
+    domains, from_cache = apps_get("/max-player/domains", "maxplayer_free_domains")
+    if not isinstance(domains, list):
+        raise HTTPException(status_code=502, detail="Resposta inesperada do MaxPlayer Free: era esperada uma lista de dominios.")
+    return domains, from_cache
+
+def line_apps_matches(line, termo):
+    termo = normalize_search_value(termo)
+    termo_numerico = re.sub(r"[^\d]", "", termo)
+    candidates = [line.get("id"), line.get("username"), line.get("password")]
+
+    for candidate in candidates:
+        value = normalize_search_value(candidate)
+        if not value:
+            continue
+
+        value_numerico = re.sub(r"[^\d]", "", value)
+        if termo == value or termo in value:
+            return True
+        if termo_numerico and (termo_numerico == value_numerico or termo_numerico in value_numerico):
+            return True
+
+    return False
+
+def maxplayer_free_user_matches(user, termo):
+    termo = normalize_search_value(termo)
+    termo_numerico = re.sub(r"[^\d]", "", termo)
+    candidates = [user.get("id"), user.get("line_id"), user.get("username"), user.get("password"), user.get("domain_id")]
+
+    for candidate in candidates:
+        value = normalize_search_value(candidate)
+        if not value:
+            continue
+
+        value_numerico = re.sub(r"[^\d]", "", value)
+        if termo == value or termo in value:
+            return True
+        if termo_numerico and (termo_numerico == value_numerico or termo_numerico in value_numerico):
+            return True
+
+    return False
+
+def format_apps_line(line):
+    return {
+        "id": line.get("id"),
+        "usuario": line.get("username"),
+        "senha": line.get("password"),
+        "vencimento": line.get("exp_date"),
+        "e_teste": "Sim" if line.get("is_trial") else "Nao"
+    }
+
+def format_maxplayer_free_user(user, domain_map=None):
+    domain_map = domain_map or {}
+    domain_id = str(user.get("domain_id") or "")
+    return {
+        "id": user.get("id"),
+        "line_id": user.get("line_id"),
+        "usuario": user.get("username"),
+        "senha": user.get("password"),
+        "vencimento": user.get("exp_date"),
+        "dominio_id": domain_id,
+        "dominio": domain_map.get(domain_id, domain_id),
+        "e_teste": "Sim" if user.get("is_trial") else "Nao"
     }
 
 def maxplayer_panel_post(path, payload):
@@ -1295,6 +1494,75 @@ def pesquisar_usuario_maxplayer(request: SearchRequest):
 def pesquisar_usuario_maxplayer_get(usuario: str):
     return pesquisar_usuario_maxplayer(SearchRequest(termo=usuario))
 
+@app.get("/maxplayer-free/domains")
+def listar_maxplayer_free_domains():
+    domains, from_cache = get_maxplayer_free_domains()
+    return {
+        "status": "sucesso",
+        "cache": "sim" if from_cache else "nao",
+        "domains": domains
+    }
+
+@app.post("/maxplayer-free/usuario")
+def pesquisar_usuario_maxplayer_free(request: SearchRequest):
+    termo = request.termo.strip()
+    if not termo:
+        raise HTTPException(status_code=400, detail="Usuario nao informado")
+
+    users, users_from_cache = get_maxplayer_free_users()
+    domains, _ = get_maxplayer_free_domains()
+    domain_map = {str(item.get("id")): item.get("label") for item in domains}
+    encontrados = [format_maxplayer_free_user(user, domain_map) for user in users if maxplayer_free_user_matches(user, termo)]
+
+    return {
+        "status": "sucesso" if encontrados else "nao_encontrado",
+        "termo_buscado": termo,
+        "total_base": len(users),
+        "total_encontrado": len(encontrados),
+        "cache": "sim" if users_from_cache else "nao",
+        "usuarios": encontrados[:20],
+        "mensagem": "Usuario encontrado no MaxPlayer Free." if encontrados else "Nenhum usuario encontrado no MaxPlayer Free com este termo."
+    }
+
+@app.post("/maxplayer-free/linha")
+def pesquisar_linha_maxplayer_free(request: SearchRequest):
+    termo = request.termo.strip()
+    if not termo:
+        raise HTTPException(status_code=400, detail="Linha nao informada")
+
+    lines, from_cache = get_apps_lines()
+    encontrados = [format_apps_line(line) for line in lines if line_apps_matches(line, termo)]
+
+    return {
+        "status": "sucesso" if encontrados else "nao_encontrado",
+        "termo_buscado": termo,
+        "total_base": len(lines),
+        "total_encontrado": len(encontrados),
+        "cache": "sim" if from_cache else "nao",
+        "linhas": encontrados[:20],
+        "mensagem": "Linha encontrada no Painel Apps." if encontrados else "Nenhuma linha encontrada no Painel Apps com este termo."
+    }
+
+@app.post("/maxplayer-free/usuario/criar")
+def criar_usuario_maxplayer_free(request: MaxplayerFreeCreateRequest):
+    payload = {
+        "line_id": request.line_id,
+        "domain_id": request.domain_id
+    }
+
+    try:
+        result = apps_post("/max-player/users", payload)
+        log_action("maxplayer_free_create_user", "sucesso", {"payload": payload, "result": result})
+    except HTTPException as e:
+        log_action("maxplayer_free_create_user", "erro", {"payload": payload, "error": e.detail})
+        raise
+
+    return {
+        "status": "sucesso",
+        "message": "Usuario criado no MaxPlayer Free.",
+        "result": result
+    }
+
 @app.post("/cliente/consulta")
 def consulta_cliente_unificada(request: SearchRequest):
     termo = request.termo.strip()
@@ -1364,22 +1632,56 @@ def consulta_cliente_unificada(request: SearchRequest):
             "usuarios": []
         }
 
+    try:
+        maxplayer_free = pesquisar_usuario_maxplayer_free(SearchRequest(termo=termo))
+    except HTTPException as e:
+        maxplayer_free = {
+            "status": "erro",
+            "mensagem": e.detail,
+            "usuarios": []
+        }
+    except Exception as e:
+        maxplayer_free = {
+            "status": "erro",
+            "mensagem": str(e),
+            "usuarios": []
+        }
+
+    try:
+        maxplayer_free_linhas = pesquisar_linha_maxplayer_free(SearchRequest(termo=termo))
+    except HTTPException as e:
+        maxplayer_free_linhas = {
+            "status": "erro",
+            "mensagem": e.detail,
+            "linhas": []
+        }
+    except Exception as e:
+        maxplayer_free_linhas = {
+            "status": "erro",
+            "mensagem": str(e),
+            "linhas": []
+        }
+
     linha_encontrada = linha.get("status") == "sucesso"
     maxplayer_encontrado = maxplayer.get("status") == "sucesso"
+    maxplayer_free_encontrado = maxplayer_free.get("status") == "sucesso"
     revenda_encontrada = revenda.get("status") == "sucesso"
 
     return {
-        "status": "sucesso" if revenda_encontrada or linha_encontrada or maxplayer_encontrado else "nao_encontrado",
+        "status": "sucesso" if revenda_encontrada or linha_encontrada or maxplayer_encontrado or maxplayer_free_encontrado else "nao_encontrado",
         "termo_buscado": termo,
         "telefone_normalizado": telefone_limpo,
         "resumo": {
             "revenda_encontrada": revenda_encontrada,
             "linha_encontrada": linha_encontrada,
-            "maxplayer_encontrado": maxplayer_encontrado
+            "maxplayer_encontrado": maxplayer_encontrado,
+            "maxplayer_free_encontrado": maxplayer_free_encontrado
         },
         "revenda": revenda,
         "linha": linha,
-        "maxplayer": maxplayer
+        "maxplayer": maxplayer,
+        "maxplayer_free": maxplayer_free,
+        "maxplayer_free_linhas": maxplayer_free_linhas
     }
 
 if __name__ == "__main__":

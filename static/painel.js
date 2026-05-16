@@ -1,4 +1,4 @@
-const VERSION = '3.3';
+const VERSION = '3.4';
         const endpoints = [
             {
                 method: 'GET',
@@ -121,6 +121,28 @@ const VERSION = '3.3';
             },
             {
                 method: 'POST',
+                path: '/maxplayer-free/usuario',
+                description: 'Pesquisa se um usuario existe no MaxPlayer Free.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nBusca por usuario, line_id, senha ou dominio.',
+                field: { id: 'maxplayerFreeUsuario', label: 'Usuario MaxPlayer Free', placeholder: 'Usuario, telefone ou line_id' },
+                action: { type: 'postTerm', label: 'Pesquisar Free', endpoint: '/maxplayer-free/usuario', inputId: 'maxplayerFreeUsuario', responseId: 'r-maxplayer-free' }
+            },
+            {
+                method: 'GET',
+                path: '/maxplayer-free/domains',
+                description: 'Lista os dominios disponiveis do MaxPlayer Free.',
+                sample: 'Retorna: [ { "id": "...", "label": "ROTA PRINCIPAL" } ]',
+                action: { type: 'request', label: 'Listar dominios Free', endpoint: '/maxplayer-free/domains', responseId: 'r-max-free-domains' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer-free/usuario/criar',
+                description: 'Cria um usuario no MaxPlayer Free usando line_id e dominio.',
+                sample: 'Body: { "line_id": 123, "domain_id": "..." }',
+                action: { type: 'manual', label: 'Usar pela busca', responseId: 'r-max-free-create' }
+            },
+            {
+                method: 'POST',
                 path: '/maxplayer/lista/dominio',
                 description: 'Troca o dominio de uma lista MaxPlayer.',
                 sample: 'Body: { "list_id": "...", "domain_id": "...", "new_list_name": "List 1", "iptv_username": "...", "iptv_password": "..." }',
@@ -147,6 +169,7 @@ const VERSION = '3.3';
         let updateTimer = null;
         let lastUnifiedData = null;
         let maxplayerDomains = [];
+        let maxplayerFreeDomains = [];
 
         const endpointList = document.getElementById('endpointList');
         const emptyState = document.getElementById('emptyState');
@@ -295,6 +318,21 @@ const VERSION = '3.3';
             ].join('');
         }
 
+        function freeDomainOptions(selectedId = '') {
+            if (!maxplayerFreeDomains.length) {
+                return '<option value="">Carregando dominios Free...</option>';
+            }
+
+            return [
+                '<option value="">Selecione um dominio Free</option>',
+                ...maxplayerFreeDomains.map((domain) => {
+                    const label = domain.label || domain.domain || domain.id;
+                    const selected = String(domain.id) === String(selectedId) ? ' selected' : '';
+                    return `<option value="${escapeHtml(domain.id)}"${selected}>${escapeHtml(label)}</option>`;
+                })
+            ].join('');
+        }
+
         async function loadMaxplayerDomains() {
             try {
                 const data = await requestJson('/maxplayer/domains');
@@ -308,6 +346,23 @@ const VERSION = '3.3';
                 maxplayerDomains = [];
                 document.querySelectorAll('select[data-domain-select]').forEach((select) => {
                     select.innerHTML = '<option value="">Erro ao carregar dominios</option>';
+                });
+            }
+        }
+
+        async function loadMaxplayerFreeDomains() {
+            try {
+                const data = await requestJson('/maxplayer-free/domains');
+                maxplayerFreeDomains = data.domains || [];
+                document.querySelectorAll('select[data-free-domain-select]').forEach((select) => {
+                    const selected = select.dataset.selected || select.value;
+                    select.innerHTML = freeDomainOptions(selected);
+                    select.value = selected;
+                });
+            } catch (error) {
+                maxplayerFreeDomains = [];
+                document.querySelectorAll('select[data-free-domain-select]').forEach((select) => {
+                    select.innerHTML = '<option value="">Erro ao carregar dominios Free</option>';
                 });
             }
         }
@@ -350,6 +405,30 @@ const VERSION = '3.3';
                         data-iptv-pass="${escapeHtml(iptv.senha)}">
                         Salvar dominio
                     </button>
+                </div>`;
+        }
+
+        function maxplayerFreeCreateForm(data) {
+            const freeLine = (data.maxplayer_free_linhas?.linhas || [])[0] || {};
+            if (!freeLine.id) {
+                return '<p class="empty-result">Para criar no Free, preciso encontrar a linha no Painel Apps.</p>';
+            }
+
+            return `
+                <div class="inline-form">
+                    <label for="createMaxFreeDomain">Dominio Free</label>
+                    <select id="createMaxFreeDomain" data-free-domain-select>${freeDomainOptions('')}</select>
+                    <div class="data-grid">
+                        <div class="data-row">
+                            <div class="data-label">Line ID</div>
+                            <div class="data-value">${escapeHtml(freeLine.id)}</div>
+                        </div>
+                        <div class="data-row">
+                            <div class="data-label">Linha</div>
+                            <div class="data-value">${escapeHtml(freeLine.usuario || 'N/A')}</div>
+                        </div>
+                    </div>
+                    <button class="btn primary" type="button" data-create-maxplayer-free data-line-id="${escapeHtml(freeLine.id)}">Criar no Free</button>
                 </div>`;
         }
 
@@ -434,6 +513,45 @@ const VERSION = '3.3';
             }
         }
 
+        function renderMaxplayerFreeResult(data) {
+            const maxplayerFree = data.maxplayer_free || {};
+            const user = (maxplayerFree.usuarios || [])[0] || {};
+            const freeLine = (data.maxplayer_free_linhas?.linhas || [])[0] || {};
+            const rows = maxplayerFree.status === 'sucesso' ? [
+                ['Usuario', user.usuario],
+                ['ID', user.id],
+                ['Line ID', user.line_id],
+                ['Senha', user.senha],
+                ['Vencimento', user.vencimento],
+                ['Dominio', user.dominio],
+                ['Tipo', formatTrialValue(user.e_teste)],
+                ['Encontrados', maxplayerFree.total_encontrado],
+                ['Cache', maxplayerFree.cache]
+            ] : freeLine.id ? [
+                ['Linha encontrada', freeLine.usuario],
+                ['Line ID', freeLine.id],
+                ['Senha linha', freeLine.senha],
+                ['Vencimento', freeLine.vencimento],
+                ['Tipo', formatTrialValue(freeLine.e_teste)]
+            ] : [];
+
+            renderResultCard(
+                'maxplayerFreeResult',
+                'MaxPlayer Free',
+                maxplayerFree.status === 'sucesso' ? 'sucesso' : (freeLine.id ? 'ignorado' : maxplayerFree.status),
+                rows,
+                maxplayerFree.mensagem || 'Nenhum usuario encontrado no MaxPlayer Free.',
+                {
+                    usuario: maxplayerFree,
+                    linha: data.maxplayer_free_linhas
+                }
+            );
+
+            if (maxplayerFree.status !== 'sucesso') {
+                document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', maxplayerFreeCreateForm(data));
+            }
+        }
+
         async function runUnifiedSearch(term) {
             const button = document.getElementById('clientSearchButton');
             const results = document.getElementById('clientResults');
@@ -444,6 +562,7 @@ const VERSION = '3.3';
             renderResultCard('resellerResult', 'Revenda e pagamento', 'ignorado', [], 'Consultando base das revendas...', {});
             renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
             renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
+            renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'ignorado', [], 'Consultando MaxPlayer Free...', {});
 
             try {
                 const data = await requestJson('/cliente/consulta', {
@@ -455,11 +574,14 @@ const VERSION = '3.3';
                 renderResellerResult(data);
                 renderLineResult(data);
                 renderMaxplayerResult(data);
+                renderMaxplayerFreeResult(data);
                 loadMaxplayerDomains();
+                loadMaxplayerFreeDomains();
             } catch (error) {
                 renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
                 renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
                 renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
+                renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'erro', [], error.message, {});
             } finally {
                 button.disabled = false;
                 button.textContent = 'Pesquisar';
@@ -759,6 +881,37 @@ const VERSION = '3.3';
                 }).finally(() => {
                     editButton.disabled = false;
                     editButton.textContent = 'Salvar dominio';
+                });
+                return;
+            }
+
+            const createFreeButton = event.target.closest('button[data-create-maxplayer-free]');
+            if (createFreeButton) {
+                const domainId = document.getElementById('createMaxFreeDomain')?.value;
+                const lineId = Number(createFreeButton.dataset.lineId);
+                if (!domainId || !lineId) {
+                    alert('Selecione um dominio Free e confirme a linha.');
+                    return;
+                }
+                if (!confirm('Criar este usuario no MaxPlayer Free com o dominio selecionado?')) {
+                    return;
+                }
+                createFreeButton.disabled = true;
+                createFreeButton.textContent = 'Criando...';
+                requestJson('/maxplayer-free/usuario/criar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        line_id: lineId,
+                        domain_id: domainId
+                    })
+                }).then(() => {
+                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim());
+                }).catch((error) => {
+                    alert(error.message);
+                }).finally(() => {
+                    createFreeButton.disabled = false;
+                    createFreeButton.textContent = 'Criar no Free';
                 });
                 return;
             }
