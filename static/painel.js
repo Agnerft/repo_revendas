@@ -1,4 +1,4 @@
-const VERSION = '3.2';
+const VERSION = '3.3';
         const endpoints = [
             {
                 method: 'GET',
@@ -170,8 +170,18 @@ const VERSION = '3.2';
 
         async function requestJson(endpoint, options = {}) {
             const separator = endpoint.includes('?') ? '&' : '?';
-            const response = await fetch(endpoint + separator + 'v=' + VERSION, options);
-            const data = await response.json();
+            const response = await fetch(endpoint + separator + 'v=' + VERSION, {
+                cache: 'no-store',
+                credentials: 'same-origin',
+                ...options
+            });
+            const text = await response.text();
+            let data;
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch (error) {
+                data = { detail: text || 'Resposta vazia da API.' };
+            }
             if (!response.ok) {
                 throw new Error(JSON.stringify(data, null, 2));
             }
@@ -296,6 +306,9 @@ const VERSION = '3.2';
                 });
             } catch (error) {
                 maxplayerDomains = [];
+                document.querySelectorAll('select[data-domain-select]').forEach((select) => {
+                    select.innerHTML = '<option value="">Erro ao carregar dominios</option>';
+                });
             }
         }
 
