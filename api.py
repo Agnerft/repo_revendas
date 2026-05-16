@@ -640,9 +640,18 @@ PAINEL_HTML = '''
             min-height: 100vh;
         }
 
-        .sidebar,
+        .sidebar {
+            display: none;
+        }
+
         .workspace {
             display: none;
+            grid-template-columns: minmax(0, 1fr) 340px;
+            margin-top: 18px;
+        }
+
+        .workspace.show {
+            display: grid;
         }
 
         main {
@@ -747,7 +756,7 @@ PAINEL_HTML = '''
 
         .results {
             display: none;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 14px;
             margin-top: 16px;
         }
@@ -860,6 +869,115 @@ PAINEL_HTML = '''
             display: block;
         }
 
+        .value-link {
+            display: inline-flex;
+            align-items: center;
+            min-height: 32px;
+            padding: 0 10px;
+            border-radius: 8px;
+            color: #fff;
+            background: #166534;
+            text-decoration: none;
+            font-weight: 800;
+        }
+
+        .theme-toggle {
+            min-width: 122px;
+        }
+
+        .workspace .panel {
+            box-shadow: none;
+        }
+
+        .workspace .endpoint-card,
+        .workspace pre,
+        .workspace .endpoint-body {
+            background: #fff;
+            color: #172033;
+            border-color: #e4e9f2;
+        }
+
+        .workspace .endpoint-path {
+            color: #111827;
+        }
+
+        .workspace .search,
+        .workspace .field input {
+            color: #111827;
+            background: #fff;
+            border-color: #cfd8e6;
+        }
+
+        body.theme-dark {
+            color: #e5edf8;
+            background: #0b1020;
+        }
+
+        body.theme-dark h1,
+        body.theme-dark .unified-title,
+        body.theme-dark .result-title,
+        body.theme-dark .stat-value,
+        body.theme-dark .panel-title,
+        body.theme-dark .endpoint-path {
+            color: #f8fafc;
+        }
+
+        body.theme-dark .lead,
+        body.theme-dark .unified-text,
+        body.theme-dark .stat-label,
+        body.theme-dark .stat-helper,
+        body.theme-dark .data-label,
+        body.theme-dark .endpoint-desc,
+        body.theme-dark .quick-text,
+        body.theme-dark .empty-result {
+            color: #9aa8bb;
+        }
+
+        body.theme-dark .unified,
+        body.theme-dark .stat,
+        body.theme-dark .panel,
+        body.theme-dark .result-card,
+        body.theme-dark .endpoint-card {
+            color: #e5edf8;
+            background: #111827;
+            border-color: #263244;
+            box-shadow: 0 14px 36px rgba(0, 0, 0, .24);
+        }
+
+        body.theme-dark .result-card,
+        body.theme-dark .workspace .endpoint-card,
+        body.theme-dark .workspace pre,
+        body.theme-dark .workspace .endpoint-body,
+        body.theme-dark .raw-output {
+            background: #0f172a;
+            color: #dbeafe;
+            border-color: #263244;
+        }
+
+        body.theme-dark .btn,
+        body.theme-dark .unified-input,
+        body.theme-dark .workspace .search,
+        body.theme-dark .workspace .field input {
+            color: #e5edf8;
+            background: #0f172a;
+            border-color: #334155;
+        }
+
+        body.theme-dark .btn.primary,
+        body.theme-dark .value-link {
+            background: #18b26b;
+            border-color: #18b26b;
+            color: #052e16;
+        }
+
+        body.theme-dark .data-row {
+            border-color: #263244;
+        }
+
+        body.theme-dark .data-value {
+            color: #e5edf8;
+        }
+
         @media (max-width: 820px) {
             main {
                 width: min(100% - 22px, 1120px);
@@ -875,6 +993,11 @@ PAINEL_HTML = '''
 
             .status-grid,
             .results {
+                grid-template-columns: 1fr;
+            }
+
+            .workspace,
+            .workspace.show {
                 grid-template-columns: 1fr;
             }
 
@@ -916,6 +1039,8 @@ PAINEL_HTML = '''
                     <p class="lead">Pesquise uma vez e veja o retorno da base de linhas e do MaxPlayer no mesmo lugar.</p>
                 </div>
                 <div class="toolbar">
+                    <button class="btn theme-toggle" id="themeToggleBtn">Modo escuro</button>
+                    <button class="btn" id="toggleEndpointsBtn">Endpoints</button>
                     <button class="btn" id="refreshStatusBtn">Atualizar status</button>
                     <button class="btn primary" id="runUpdateBtn">Atualizar dados</button>
                 </div>
@@ -929,6 +1054,7 @@ PAINEL_HTML = '''
                     <button class="btn primary" id="clientSearchButton" type="submit">Pesquisar</button>
                 </form>
                 <div class="results" id="clientResults">
+                    <article class="result-card" id="resellerResult"></article>
                     <article class="result-card" id="lineResult"></article>
                     <article class="result-card" id="maxplayerResult"></article>
                 </div>
@@ -1006,6 +1132,14 @@ PAINEL_HTML = '''
                 sample: 'Body: { "termo": "19/08/2025" }\\n\\nRetorna: [ { ... }, { ... } ]',
                 field: { id: 'filtrarTermo', label: 'Filtro', placeholder: 'Data, nome, telefone ou termo' },
                 action: { type: 'postTerm', label: 'Filtrar', endpoint: '/filtrar', inputId: 'filtrarTermo', responseId: 'r-filtrar' }
+            },
+            {
+                method: 'POST',
+                path: '/cliente/consulta',
+                description: 'Consulta revendas, link de pagamento, linhas e MaxPlayer em uma unica pesquisa.',
+                sample: 'Body: { "termo": "5521999999999" }\\n\\nRetorna: revenda, linha e maxplayer.',
+                field: { id: 'consultaUnificadaTermo', label: 'Termo', placeholder: 'Telefone, usuario, ID ou email' },
+                action: { type: 'postTerm', label: 'Consultar tudo', endpoint: '/cliente/consulta', inputId: 'consultaUnificadaTermo', responseId: 'r-consulta-unificada' }
             },
             {
                 method: 'GET',
@@ -1137,7 +1271,7 @@ PAINEL_HTML = '''
                     ${rows.map((row) => `
                         <div class="data-row">
                             <div class="data-label">${escapeHtml(row[0])}</div>
-                            <div class="data-value">${escapeHtml(emptyValue(row[1]))}</div>
+                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `<a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>` : escapeHtml(emptyValue(row[1]))}</div>
                         </div>
                     `).join('')}
                 </div>`;
@@ -1156,6 +1290,29 @@ PAINEL_HTML = '''
                 <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
                 <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
             `;
+        }
+
+        function renderResellerResult(data) {
+            const revenda = data.revenda || {};
+            const rows = revenda.status === 'sucesso' ? [
+                ['Cliente', revenda.nome],
+                ['Telefone', revenda.telefone],
+                ['Revenda', revenda.Revenda],
+                ['Plano', revenda.plano],
+                ['Vencimento', revenda.data_expiracao],
+                ['ID cliente', revenda.Id_client],
+                ['DT Row', revenda.DT_RowId],
+                ['Pagamento', revenda.Link, 'link']
+            ] : [];
+
+            renderResultCard(
+                'resellerResult',
+                'Revenda e pagamento',
+                revenda.status,
+                rows,
+                revenda.mensagem || 'Nenhum cadastro encontrado na base das revendas.',
+                revenda
+            );
         }
 
         function renderLineResult(data) {
@@ -1217,6 +1374,7 @@ PAINEL_HTML = '''
             button.disabled = true;
             button.textContent = 'Pesquisando...';
             results.classList.add('show');
+            renderResultCard('resellerResult', 'Revenda e pagamento', 'ignorado', [], 'Consultando base das revendas...', {});
             renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
             renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
 
@@ -1226,9 +1384,11 @@ PAINEL_HTML = '''
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ termo: term })
                 });
+                renderResellerResult(data);
                 renderLineResult(data);
                 renderMaxplayerResult(data);
             } catch (error) {
+                renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
                 renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
                 renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
             } finally {
@@ -1433,6 +1593,21 @@ PAINEL_HTML = '''
             await runUnifiedSearch(term);
         });
 
+        document.getElementById('themeToggleBtn').addEventListener('click', () => {
+            const isDark = document.body.classList.toggle('theme-dark');
+            localStorage.setItem('painel-theme', isDark ? 'dark' : 'light');
+            document.getElementById('themeToggleBtn').textContent = isDark ? 'Modo claro' : 'Modo escuro';
+        });
+
+        document.getElementById('toggleEndpointsBtn').addEventListener('click', () => {
+            const workspace = document.querySelector('.workspace');
+            const isOpen = workspace.classList.toggle('show');
+            document.getElementById('toggleEndpointsBtn').textContent = isOpen ? 'Ocultar endpoints' : 'Endpoints';
+            if (isOpen) {
+                workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+
         document.addEventListener('click', (event) => {
             const rawButton = event.target.closest('button[data-raw-target]');
             if (!rawButton) return;
@@ -1475,6 +1650,10 @@ PAINEL_HTML = '''
 
         updateCounts();
         renderEndpoints();
+        if (localStorage.getItem('painel-theme') === 'dark') {
+            document.body.classList.add('theme-dark');
+            document.getElementById('themeToggleBtn').textContent = 'Modo claro';
+        }
         loadStats();
         pollUpdateStatus(false);
     </script>
@@ -2240,6 +2419,33 @@ def consulta_cliente_unificada(request: SearchRequest):
 
     telefone_limpo = re.sub(r"[^\d]", "", termo)
 
+    try:
+        revenda = buscar_cliente(SearchRequest(termo=termo))
+        if isinstance(revenda, dict) and revenda.get("DT_RowId") != "nao_encontrado":
+            revenda = {
+                **revenda,
+                "status": "sucesso",
+                "mensagem": "Cadastro encontrado na base das revendas."
+            }
+        else:
+            revenda = {
+                **(revenda if isinstance(revenda, dict) else {}),
+                "status": "nao_encontrado",
+                "mensagem": "Nenhum cadastro encontrado na base das revendas."
+            }
+    except HTTPException as e:
+        revenda = {
+            "status": "erro",
+            "mensagem": e.detail,
+            "Link": "nao_encontrado"
+        }
+    except Exception as e:
+        revenda = {
+            "status": "erro",
+            "mensagem": str(e),
+            "Link": "nao_encontrado"
+        }
+
     if telefone_limpo:
         try:
             linha = consultar_linha_externa_get(telefone_limpo)
@@ -2276,15 +2482,18 @@ def consulta_cliente_unificada(request: SearchRequest):
 
     linha_encontrada = linha.get("status") == "sucesso"
     maxplayer_encontrado = maxplayer.get("status") == "sucesso"
+    revenda_encontrada = revenda.get("status") == "sucesso"
 
     return {
-        "status": "sucesso" if linha_encontrada or maxplayer_encontrado else "nao_encontrado",
+        "status": "sucesso" if revenda_encontrada or linha_encontrada or maxplayer_encontrado else "nao_encontrado",
         "termo_buscado": termo,
         "telefone_normalizado": telefone_limpo,
         "resumo": {
+            "revenda_encontrada": revenda_encontrada,
             "linha_encontrada": linha_encontrada,
             "maxplayer_encontrado": maxplayer_encontrado
         },
+        "revenda": revenda,
         "linha": linha,
         "maxplayer": maxplayer
     }
