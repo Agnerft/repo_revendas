@@ -34,7 +34,7 @@ def load_env_file(path=ENV_FILE):
                 continue
 
             key, value = line.split("=", 1)
-            key = key.strip()
+            key = key.strip().lstrip("\ufeff")
             value = value.strip().strip('"').strip("'")
             os.environ.setdefault(key, value)
 
