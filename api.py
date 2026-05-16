@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import pandas as pd
 import os
 import json
+import base64
 import re
 import unicodedata
 import subprocess
@@ -44,6 +45,22 @@ class CredenciaisRevendaRequest(BaseModel):
     email_atual: str
     novo_email: str
     nova_senha: Optional[str] = None
+
+class MaxplayerCreateRequest(BaseModel):
+    domain_id: str
+    iptv_user: str
+    iptv_pass: str
+    username: Optional[str] = None
+    user_password: Optional[str] = None
+    user_email: Optional[str] = None
+    fullname: Optional[str] = None
+
+class MaxplayerEditListRequest(BaseModel):
+    list_id: str
+    domain_id: str
+    new_list_name: str = "List 1"
+    iptv_username: str
+    iptv_password: str
 
 def testar_login_gestor(email, password):
     session = requests.Session()
@@ -754,7 +771,7 @@ PAINEL_HTML = '''
             line-height: 1.45;
         }
 
-        .results {
+.results {
             display: none;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 14px;
@@ -869,6 +886,35 @@ PAINEL_HTML = '''
             display: block;
         }
 
+        .inline-form {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid #edf1f7;
+        }
+
+        .inline-form label {
+            color: #667085;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .inline-form select,
+        .inline-form input {
+            min-height: 38px;
+            padding: 0 10px;
+            border: 1px solid #cfd8e6;
+            border-radius: 8px;
+            color: #111827;
+            background: #fff;
+        }
+
+        .inline-form .btn {
+            justify-self: start;
+        }
+
         .value-link {
             display: inline-flex;
             align-items: center;
@@ -956,6 +1002,8 @@ PAINEL_HTML = '''
 
         body.theme-dark .btn,
         body.theme-dark .unified-input,
+        body.theme-dark .inline-form select,
+        body.theme-dark .inline-form input,
         body.theme-dark .workspace .search,
         body.theme-dark .workspace .field input {
             color: #e5edf8;
@@ -971,6 +1019,10 @@ PAINEL_HTML = '''
         }
 
         body.theme-dark .data-row {
+            border-color: #263244;
+        }
+
+        body.theme-dark .inline-form {
             border-color: #263244;
         }
 
@@ -1202,6 +1254,20 @@ PAINEL_HTML = '''
             },
             {
                 method: 'GET',
+                path: '/maxplayer/domains',
+                description: 'Lista os dominios configurados no MaxPlayer.',
+                sample: 'Retorna: { "domains": [ { "id": "...", "domain": "..." } ] }',
+                action: { type: 'request', label: 'Listar dominios', endpoint: '/maxplayer/domains', responseId: 'r-max-domains' }
+            },
+            {
+                method: 'POST',
+                path: '/maxplayer/lista/dominio',
+                description: 'Troca o dominio de uma lista MaxPlayer.',
+                sample: 'Body: { "list_id": "...", "domain_id": "...", "new_list_name": "List 1", "iptv_username": "...", "iptv_password": "..." }',
+                action: { type: 'manual', label: 'Usar pela busca', responseId: 'r-max-edit-domain' }
+            },
+            {
+                method: 'GET',
                 path: '/revenda/listar',
                 description: 'Lista todas as revendas cadastradas com total de clientes.',
                 sample: '{\\n  "total": 5,\\n  "revendas": [\\n    { "nome": "...", "email": "...", "total_clientes": 150 }\\n  ]\\n}',
@@ -1219,6 +1285,8 @@ PAINEL_HTML = '''
 
         let activeFilter = 'all';
         let updateTimer = null;
+        let lastUnifiedData = null;
+        let maxplayerDomains = [];
 
         const endpointList = document.getElementById('endpointList');
         const emptyState = document.getElementById('emptyState');
@@ -1290,6 +1358,76 @@ PAINEL_HTML = '''
                 <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
                 <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
             `;
+        }
+
+        function domainOptions(selectedId = '') {
+            if (!maxplayerDomains.length) {
+                return '<option value="">Carregando dominios...</option>';
+            }
+
+            return [
+                '<option value="">Selecione um dominio</option>',
+                ...maxplayerDomains.map((domain) => {
+                    const label = `${domain.domain}${domain.label ? ' - ' + domain.label : ''} (${domain.https ? 'HTTPS' : 'HTTP'}:${domain.port || '80'})`;
+                    const selected = String(domain.id) === String(selectedId) ? ' selected' : '';
+                    return `<option value="${escapeHtml(domain.id)}"${selected}>${escapeHtml(label)}</option>`;
+                })
+            ].join('');
+        }
+
+        async function loadMaxplayerDomains() {
+            try {
+                const data = await requestJson('/maxplayer/domains');
+                maxplayerDomains = data.domains || [];
+                document.querySelectorAll('select[data-domain-select]').forEach((select) => {
+                    const selected = select.dataset.selected || select.value;
+                    select.innerHTML = domainOptions(selected);
+                    select.value = selected;
+                });
+            } catch (error) {
+                maxplayerDomains = [];
+            }
+        }
+
+        function maxplayerCreateForm(data) {
+            const linha = data.linha?.linha || {};
+            const termo = data.telefone_normalizado || data.termo_buscado || '';
+            const iptvUser = linha.usuario && linha.usuario !== 'N/A' ? linha.usuario : termo;
+            const iptvPass = linha.senha && linha.senha !== 'N/A' ? linha.senha : '';
+            const disabled = iptvUser && iptvPass ? '' : ' disabled';
+            const hint = iptvUser && iptvPass ? '' : '<p class="empty-result">Para criar, preciso encontrar usuario e senha na base de linhas.</p>';
+
+            return `
+                <div class="inline-form">
+                    <label for="createMaxDomain">Dominio para criar</label>
+                    <select id="createMaxDomain" data-domain-select>${domainOptions('')}</select>
+                    <input id="createMaxUser" value="${escapeHtml(iptvUser)}" placeholder="Usuario IPTV">
+                    <input id="createMaxPass" value="${escapeHtml(iptvPass)}" placeholder="Senha IPTV">
+                    ${hint}
+                    <button class="btn primary" type="button" data-create-maxplayer${disabled}>Criar no MaxPlayer</button>
+                </div>`;
+        }
+
+        function maxplayerDomainForm(user) {
+            const list = (user.listas || [])[0] || {};
+            const iptv = list.iptv || {};
+            if (!list.id || !iptv.usuario || !iptv.senha) {
+                return '';
+            }
+
+            return `
+                <div class="inline-form">
+                    <label for="editMaxDomain">Trocar dominio</label>
+                    <select id="editMaxDomain" data-domain-select data-selected="${escapeHtml(list.dominio_id || '')}">${domainOptions(list.dominio_id || '')}</select>
+                    <button class="btn primary" type="button"
+                        data-edit-max-domain
+                        data-list-id="${escapeHtml(list.id)}"
+                        data-list-name="${escapeHtml(list.nome || 'List 1')}"
+                        data-iptv-user="${escapeHtml(iptv.usuario)}"
+                        data-iptv-pass="${escapeHtml(iptv.senha)}">
+                        Salvar dominio
+                    </button>
+                </div>`;
         }
 
         function renderResellerResult(data) {
@@ -1365,6 +1503,12 @@ PAINEL_HTML = '''
                 maxplayer.mensagem || 'Nenhum usuario encontrado no MaxPlayer.',
                 maxplayer
             );
+
+            if (maxplayer.status === 'sucesso') {
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerDomainForm(user));
+            } else {
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerCreateForm(data));
+            }
         }
 
         async function runUnifiedSearch(term) {
@@ -1384,9 +1528,11 @@ PAINEL_HTML = '''
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ termo: term })
                 });
+                lastUnifiedData = data;
                 renderResellerResult(data);
                 renderLineResult(data);
                 renderMaxplayerResult(data);
+                loadMaxplayerDomains();
             } catch (error) {
                 renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
                 renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
@@ -1609,6 +1755,74 @@ PAINEL_HTML = '''
         });
 
         document.addEventListener('click', (event) => {
+            const createButton = event.target.closest('button[data-create-maxplayer]');
+            if (createButton) {
+                const domainId = document.getElementById('createMaxDomain')?.value;
+                const iptvUser = document.getElementById('createMaxUser')?.value.trim();
+                const iptvPass = document.getElementById('createMaxPass')?.value.trim();
+                if (!domainId || !iptvUser || !iptvPass) {
+                    alert('Selecione um dominio e confirme usuario/senha IPTV.');
+                    return;
+                }
+                if (!confirm('Criar este usuario no MaxPlayer com o dominio selecionado?')) {
+                    return;
+                }
+                createButton.disabled = true;
+                createButton.textContent = 'Criando...';
+                requestJson('/maxplayer/usuario/criar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        domain_id: domainId,
+                        iptv_user: iptvUser,
+                        iptv_pass: iptvPass,
+                        username: iptvUser,
+                        user_password: iptvPass
+                    })
+                }).then(() => {
+                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || iptvUser);
+                }).catch((error) => {
+                    alert(error.message);
+                }).finally(() => {
+                    createButton.disabled = false;
+                    createButton.textContent = 'Criar no MaxPlayer';
+                });
+                return;
+            }
+
+            const editButton = event.target.closest('button[data-edit-max-domain]');
+            if (editButton) {
+                const domainId = document.getElementById('editMaxDomain')?.value;
+                if (!domainId) {
+                    alert('Selecione um dominio.');
+                    return;
+                }
+                if (!confirm('Trocar o dominio desta lista no MaxPlayer?')) {
+                    return;
+                }
+                editButton.disabled = true;
+                editButton.textContent = 'Salvando...';
+                requestJson('/maxplayer/lista/dominio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        list_id: editButton.dataset.listId,
+                        domain_id: domainId,
+                        new_list_name: editButton.dataset.listName || 'List 1',
+                        iptv_username: editButton.dataset.iptvUser,
+                        iptv_password: editButton.dataset.iptvPass
+                    })
+                }).then(() => {
+                    return runUnifiedSearch(document.getElementById('clientSearchInput').value.trim() || editButton.dataset.iptvUser);
+                }).catch((error) => {
+                    alert(error.message);
+                }).finally(() => {
+                    editButton.disabled = false;
+                    editButton.textContent = 'Salvar dominio';
+                });
+                return;
+            }
+
             const rawButton = event.target.closest('button[data-raw-target]');
             if (!rawButton) return;
             const target = document.getElementById(rawButton.dataset.rawTarget);
@@ -2278,13 +2492,46 @@ def consultar_linha_externa_get(telefone: str):
 # =============================================================================
 
 MAXPLAYER_API_TOKEN = os.getenv("MAXPLAYER_API_TOKEN", "iGQyrhovNMrkrHsPwSbrVtMj")
+MAXPLAYER_PANEL_TOKEN = os.getenv("MAXPLAYER_PANEL_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkZWxldGVQYWdlIjpmYWxzZSwiZW1haWwiOiJzYWNAZ21haWwuY29tIiwiZXhwIjoxNzc5MjIzMTA0LCJncm91cCI6InJlc2VsbGVyIiwiaWQiOiI5MjA2IiwibmVlZHNfb3RwIjpmYWxzZSwib3RwX21ldGhvZCI6IiIsInBhcmVudF9pZCI6IjY5NTAiLCJwZXJtaXNzaW9ucyI6W10sInJlZnJlc2hlZF9hdCI6MTc3ODk2MzkwNCwidXNlcm5hbWUiOiJTVVBPUlRFIDExNDIzMDE3MTcifQ.sjytTP9NiyG4H5ui4yFTmgk66w3Kxm53ksc0QY3hCwE")
 MAXPLAYER_USERS_URL = "https://api.maxplayer.tv/v3/api/public/users"
+MAXPLAYER_PANEL_BASE_URL = "https://api.maxplayer.tv/v3"
 MAXPLAYER_CACHE_SECONDS = 60
 maxplayer_cache = {
     "loaded_at": 0,
     "users": None
 }
 maxplayer_cache_lock = threading.Lock()
+
+def decode_maxplayer_panel_token():
+    try:
+        token = MAXPLAYER_PANEL_TOKEN.replace("Bearer ", "")
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload.encode("utf-8")).decode("utf-8"))
+        return {
+            "group": decoded.get("group", "reseller"),
+            "id": decoded.get("id")
+        }
+    except Exception:
+        return {
+            "group": "reseller",
+            "id": None
+        }
+
+def maxplayer_panel_headers(content_type="application/x-www-form-urlencoded"):
+    token = MAXPLAYER_PANEL_TOKEN.replace("Bearer ", "")
+    if not token:
+        raise HTTPException(status_code=500, detail="MAXPLAYER_PANEL_TOKEN nao configurado.")
+
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": content_type
+    }
+
+def clear_maxplayer_cache():
+    with maxplayer_cache_lock:
+        maxplayer_cache["users"] = None
+        maxplayer_cache["loaded_at"] = 0
 
 def get_maxplayer_users(force_refresh=False):
     now = time.time()
@@ -2386,6 +2633,107 @@ def format_maxplayer_user(user):
         "usuario": user.get("username"),
         "email": user.get("email"),
         "listas": lists
+    }
+
+def maxplayer_panel_post(path, payload):
+    try:
+        response = requests.post(
+            f"{MAXPLAYER_PANEL_BASE_URL}{path}",
+            headers=maxplayer_panel_headers(),
+            data=payload,
+            timeout=45
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no painel MaxPlayer: {str(e)}")
+
+    try:
+        body = response.json()
+    except json.JSONDecodeError:
+        body = {"raw": response.text[:500]}
+
+    if not response.ok:
+        detail = body.get("error") or body.get("message") or response.text[:500]
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    clear_maxplayer_cache()
+    return body
+
+@app.get("/maxplayer/domains")
+def listar_maxplayer_domains():
+    panel = decode_maxplayer_panel_token()
+    group = panel["group"] or "reseller"
+    path = f"/api/panel/view/{group}/domains"
+
+    try:
+        response = requests.get(
+            f"{MAXPLAYER_PANEL_BASE_URL}{path}",
+            headers=maxplayer_panel_headers("application/json"),
+            timeout=45
+        )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=503, detail=f"Erro ao conectar no MaxPlayer: {str(e)}")
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="MaxPlayer retornou uma resposta que nao e JSON valido.")
+
+    if not response.ok:
+        raise HTTPException(status_code=response.status_code, detail=data.get("error") or data.get("message") or response.text[:500])
+
+    content = data.get("data") or {}
+    return {
+        "status": "sucesso",
+        "group": group,
+        "domains": content.get("domains") or [],
+        "groups": content.get("groups") or []
+    }
+
+@app.post("/maxplayer/usuario/criar")
+def criar_usuario_maxplayer(request: MaxplayerCreateRequest):
+    panel = decode_maxplayer_panel_token()
+    group = panel["group"] or "reseller"
+
+    payload = {
+        "domain_id": request.domain_id,
+        "iptv_user": request.iptv_user,
+        "iptv_pass": request.iptv_pass
+    }
+
+    if request.username:
+        payload["username"] = request.username
+    if request.user_password:
+        payload["user_password"] = request.user_password
+    if request.user_email:
+        payload["user_email"] = request.user_email
+    if request.fullname:
+        payload["fullname"] = request.fullname
+
+    result = maxplayer_panel_post(f"/api/panel/actions/{group}/create-user", payload)
+    return {
+        "status": "sucesso",
+        "message": "Usuario criado no MaxPlayer.",
+        "result": result
+    }
+
+@app.post("/maxplayer/lista/dominio")
+def trocar_dominio_lista_maxplayer(request: MaxplayerEditListRequest):
+    panel = decode_maxplayer_panel_token()
+    group = panel["group"] or "reseller"
+
+    payload = {
+        "list_id": request.list_id,
+        "domain_id": request.domain_id,
+        "new_list_name": request.new_list_name,
+        "iptv_username": request.iptv_username,
+        "iptv_password": request.iptv_password
+    }
+
+    result = maxplayer_panel_post(f"/api/panel/actions/{group}/edit-list", payload)
+    return {
+        "status": "sucesso",
+        "message": "Dominio atualizado no MaxPlayer.",
+        "result": result
     }
 
 @app.post("/maxplayer/usuario")
