@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -25,6 +25,8 @@ update_status = {
     "total": None,
     "returncode": None
 }
+update_process = None
+UPDATE_LOG_FILE = os.path.join(BASE_DIR, "update_all_revendas.log")
 
 class SearchRequest(BaseModel):
     termo: str
@@ -54,52 +56,61 @@ def load_data():
         df = pd.DataFrame()
 
 # Carrega os dados na inicialização
-def run_update_script():
-    """Executa o atualizador usando o mesmo Python que iniciou a API."""
+def start_update_process():
+    """Inicia o atualizador sem bloquear o processo da API."""
+    global update_process
+
     script_path = os.path.join(BASE_DIR, "update_all_revendas.py")
-    return subprocess.run(
+    log_file = open(UPDATE_LOG_FILE, "w", encoding="utf-8")
+    update_process = subprocess.Popen(
         [sys.executable, script_path],
         cwd=BASE_DIR,
-        capture_output=True,
         text=True,
-        timeout=900
+        stdout=log_file,
+        stderr=subprocess.STDOUT
     )
+    return update_process
 
-def update_data_job():
-    global update_status
+def get_update_log_tail():
+    if not os.path.exists(UPDATE_LOG_FILE):
+        return ""
 
     try:
-        result = run_update_script()
-
-        if result.returncode == 0:
-            load_data()
-            update_status.update({
-                "status": "success",
-                "message": "Atualizado com sucesso",
-                "total": len(df),
-                "returncode": result.returncode
-            })
-        else:
-            update_status.update({
-                "status": "error",
-                "message": result.stderr or result.stdout or "Falha ao executar update_all_revendas.py",
-                "returncode": result.returncode
-            })
-    except subprocess.TimeoutExpired:
-        update_status.update({
-            "status": "timeout",
-            "message": "Atualizacao excedeu o tempo limite de 15 minutos.",
-            "returncode": None
-        })
+        with open(UPDATE_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        return "".join(lines[-40:]).strip()
     except Exception as e:
+        return f"Erro ao ler log: {e}"
+
+def refresh_update_status():
+    global update_process
+
+    with update_lock:
+        if update_process is None or not update_status["running"]:
+            return update_status
+
+        returncode = update_process.poll()
+        if returncode is None:
+            return update_status
+
+        update_process = None
+        update_status["running"] = False
+        update_status["returncode"] = returncode
+
+    if returncode == 0:
+        load_data()
+        update_status.update({
+            "status": "success",
+            "message": "Atualizado com sucesso",
+            "total": len(df)
+        })
+    else:
         update_status.update({
             "status": "error",
-            "message": str(e),
-            "returncode": None
+            "message": get_update_log_tail() or "Falha ao executar update_all_revendas.py"
         })
-    finally:
-        update_status["running"] = False
-        update_lock.release()
+
+    return update_status
 
 load_data()
 
@@ -636,24 +647,27 @@ Retorna: dados da linha na API externa</pre></div>
 
 
 @app.post("/atualizar")
-def atualizar(background_tasks: BackgroundTasks):
-    if not update_lock.acquire(blocking=False):
-        return JSONResponse(
-            status_code=409,
-            content={
-                "message": "Atualizacao ja esta em andamento.",
-                "status": update_status
-            }
-        )
+def atualizar():
+    refresh_update_status()
 
-    update_status.update({
-        "running": True,
-        "status": "running",
-        "message": "Atualizacao iniciada.",
-        "total": len(df) if df is not None else 0,
-        "returncode": None
-    })
-    background_tasks.add_task(update_data_job)
+    with update_lock:
+        if update_status["running"]:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "message": "Atualizacao ja esta em andamento.",
+                    "status": update_status
+                }
+            )
+
+        update_status.update({
+            "running": True,
+            "status": "running",
+            "message": "Atualizacao iniciada.",
+            "total": len(df) if df is not None else 0,
+            "returncode": None
+        })
+        start_update_process()
 
     return JSONResponse(
         status_code=202,
@@ -666,7 +680,7 @@ def atualizar(background_tasks: BackgroundTasks):
 
 @app.get("/atualizar/status")
 def atualizar_status():
-    return update_status
+    return refresh_update_status()
 
 
 
@@ -696,29 +710,13 @@ def buscar_cliente(request: SearchRequest):
     
     # --- COMANDO INTERNO DE ATUALIZAÇÃO ---
     if termo == "atualizar":
-        if not update_lock.acquire(blocking=False):
-            return {
-                "Revenda": "SISTEMA",
-                "DT_RowId": "CMD_RUNNING",
-                "Id_client": "",
-                "nome": "Atualizacao ja esta em andamento",
-                "telefone": "",
-                "data_expiracao": "Consulte /atualizar/status"
-            }
-
-        update_status.update({
-            "running": True,
-            "status": "running",
-            "message": "Atualizacao iniciada.",
-            "total": len(df) if df is not None else 0,
-            "returncode": None
-        })
-        threading.Thread(target=update_data_job, daemon=True).start()
+        response = atualizar()
+        status_code = getattr(response, "status_code", 202)
         return {
             "Revenda": "SISTEMA",
-            "DT_RowId": "CMD_STARTED",
+            "DT_RowId": "CMD_RUNNING" if status_code == 409 else "CMD_STARTED",
             "Id_client": "00000",
-            "nome": "Atualizacao iniciada",
+            "nome": "Atualizacao ja esta em andamento" if status_code == 409 else "Atualizacao iniciada",
             "telefone": "Rodando em background",
             "data_expiracao": "Consulte /atualizar/status"
         }
