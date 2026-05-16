@@ -934,14 +934,41 @@ PAINEL_HTML = '''
         }
 
         .copy-link {
+            display: inline-grid;
+            place-items: center;
+            width: 34px;
             min-height: 32px;
-            padding: 0 10px;
+            padding: 0;
             border: 1px solid #cfd8e6;
             border-radius: 8px;
             color: #263244;
             background: #fff;
             cursor: pointer;
             font-weight: 800;
+        }
+
+        .copy-link svg {
+            width: 16px;
+            height: 16px;
+            pointer-events: none;
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .copy-link.copied {
+            color: #166534;
+            border-color: #86efac;
+            background: #dcfce7;
         }
 
         .theme-toggle {
@@ -1039,6 +1066,12 @@ PAINEL_HTML = '''
             color: #e5edf8;
             background: #0f172a;
             border-color: #334155;
+        }
+
+        body.theme-dark .copy-link.copied {
+            color: #86efac;
+            background: #052e16;
+            border-color: #166534;
         }
 
         body.theme-dark .data-row {
@@ -1356,6 +1389,47 @@ PAINEL_HTML = '''
             return value === undefined || value === null || value === '' ? 'N/A' : value;
         }
 
+        function copyIcon(label = 'Copiar link') {
+            return `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+                    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+                </svg>
+                <span class="sr-only">${escapeHtml(label)}</span>`;
+        }
+
+        function checkIcon() {
+            return `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                <span class="sr-only">Copiado</span>`;
+        }
+
+        async function copyText(value) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(value);
+                return;
+            }
+
+            const area = document.createElement('textarea');
+            area.value = value;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.left = '-9999px';
+            area.style.top = '0';
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            const ok = document.execCommand('copy');
+            area.remove();
+            if (!ok) {
+                throw new Error('copy_failed');
+            }
+        }
+
         function dataRows(rows) {
             return `
                 <div class="data-grid">
@@ -1365,7 +1439,7 @@ PAINEL_HTML = '''
                             <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `
                                 <div class="link-actions">
                                     <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
-                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}">Copiar link</button>
+                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}" title="Copiar link" aria-label="Copiar link">${copyIcon()}</button>
                                 </div>` : escapeHtml(emptyValue(row[1]))}</div>
                         </div>
                     `).join('')}
@@ -1785,11 +1859,13 @@ PAINEL_HTML = '''
             const copyButton = event.target.closest('button[data-copy-link]');
             if (copyButton) {
                 const link = copyButton.dataset.copyLink;
-                navigator.clipboard.writeText(link).then(() => {
-                    const original = copyButton.textContent;
-                    copyButton.textContent = 'Copiado';
+                copyText(link).then(() => {
+                    const original = copyButton.innerHTML;
+                    copyButton.innerHTML = checkIcon();
+                    copyButton.classList.add('copied');
                     window.setTimeout(() => {
-                        copyButton.textContent = original;
+                        copyButton.innerHTML = original;
+                        copyButton.classList.remove('copied');
                     }, 1400);
                 }).catch(() => {
                     alert('Nao foi possivel copiar automaticamente. Link: ' + link);
