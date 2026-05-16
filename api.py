@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 import pandas as pd
@@ -7,13 +7,24 @@ import json
 import re
 import unicodedata
 import subprocess
+import sys
+import threading
 import requests
 from typing import Optional
 
 app = FastAPI(title="Serviço de Busca de Revendas")
 
-EXCEL_FILE = "revendas_consolidadas.xlsx"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+EXCEL_FILE = os.path.join(BASE_DIR, "revendas_consolidadas.xlsx")
 df = None
+update_lock = threading.Lock()
+update_status = {
+    "running": False,
+    "status": "idle",
+    "message": "Nenhuma atualizacao em andamento.",
+    "total": None,
+    "returncode": None
+}
 
 class SearchRequest(BaseModel):
     termo: str
@@ -43,6 +54,53 @@ def load_data():
         df = pd.DataFrame()
 
 # Carrega os dados na inicialização
+def run_update_script():
+    """Executa o atualizador usando o mesmo Python que iniciou a API."""
+    script_path = os.path.join(BASE_DIR, "update_all_revendas.py")
+    return subprocess.run(
+        [sys.executable, script_path],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        timeout=900
+    )
+
+def update_data_job():
+    global update_status
+
+    try:
+        result = run_update_script()
+
+        if result.returncode == 0:
+            load_data()
+            update_status.update({
+                "status": "success",
+                "message": "Atualizado com sucesso",
+                "total": len(df),
+                "returncode": result.returncode
+            })
+        else:
+            update_status.update({
+                "status": "error",
+                "message": result.stderr or result.stdout or "Falha ao executar update_all_revendas.py",
+                "returncode": result.returncode
+            })
+    except subprocess.TimeoutExpired:
+        update_status.update({
+            "status": "timeout",
+            "message": "Atualizacao excedeu o tempo limite de 15 minutos.",
+            "returncode": None
+        })
+    except Exception as e:
+        update_status.update({
+            "status": "error",
+            "message": str(e),
+            "returncode": None
+        })
+    finally:
+        update_status["running"] = False
+        update_lock.release()
+
 load_data()
 
 @app.get("/")
@@ -444,7 +502,7 @@ Retorna: dados da linha na API externa</pre></div>
                     return;
                 }
                 
-                const telefoneLimpo = telefone.replace(/\D/g, '');
+                const telefoneLimpo = telefone.replace(/\\D/g, '');
                 
                 respDiv.className = 'response show';
                 respDiv.textContent = '⏳ Consultando API externa...';
@@ -515,7 +573,7 @@ Retorna: dados da linha na API externa</pre></div>
                 }
                 
                 // Remove caracteres não numéricos
-                const telefoneLimpo = telefone.replace(/\D/g, '');
+                const telefoneLimpo = telefone.replace(/\\D/g, '');
                 
                 respDiv.className = 'response show';
                 respDiv.textContent = '⏳ Consultando API externa...';
@@ -578,31 +636,37 @@ Retorna: dados da linha na API externa</pre></div>
 
 
 @app.post("/atualizar")
-def atualizar():
-    try:
-        result = subprocess.run(
-            ["python", "update_all_revendas.py"],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode == 0:
-            load_data()
-            return JSONResponse({
-                "message": "Atualizado com sucesso",
-                "total": len(df)
-            })
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"detail": result.stderr}
-            )
-
-    except Exception as e:
+def atualizar(background_tasks: BackgroundTasks):
+    if not update_lock.acquire(blocking=False):
         return JSONResponse(
-            status_code=500,
-            content={"detail": str(e)}
+            status_code=409,
+            content={
+                "message": "Atualizacao ja esta em andamento.",
+                "status": update_status
+            }
         )
+
+    update_status.update({
+        "running": True,
+        "status": "running",
+        "message": "Atualizacao iniciada.",
+        "total": len(df) if df is not None else 0,
+        "returncode": None
+    })
+    background_tasks.add_task(update_data_job)
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "message": "Atualizacao iniciada em background.",
+            "status_url": "/atualizar/status",
+            "status": update_status
+        }
+    )
+
+@app.get("/atualizar/status")
+def atualizar_status():
+    return update_status
 
 
 
@@ -632,49 +696,32 @@ def buscar_cliente(request: SearchRequest):
     
     # --- COMANDO INTERNO DE ATUALIZAÇÃO ---
     if termo == "atualizar":
-        import subprocess
-        print("Recebido comando de atualização. Executando update_all_revendas.py...")
-        
-        # Executa o script de atualização
-        # Usamos subprocess para rodar o script independentemente
-        try:
-            # Roda o script e espera terminar (pode demorar alguns minutos)
-            # Como é uma requisição HTTP, o cliente vai esperar.
-            # Se demorar muito, pode dar timeout no cliente.
-            result = subprocess.run(["python", "update_all_revendas.py"], capture_output=True, text=True)
-            
-            if result.returncode == 0:
-                print("Atualização concluída. Recarregando dados...")
-                load_data()
-                return {
-                    "Revenda": "SISTEMA",
-                    "DT_RowId": "CMD_OK",
-                    "Id_client": "00000",
-                    "nome": "Atualização Concluída",
-                    "telefone": f"Total: {len(df)} registros",
-                    "data_expiracao": "Atualizado agora"
-                }
-            else:
-                print(f"Erro na atualização: {result.stderr}")
-                return {
-                    "Revenda": "ERRO",
-                    "DT_RowId": "CMD_FAIL",
-                    "Id_client": "",
-                    "nome": "Erro na atualização",
-                    "telefone": "",
-                    "data_expiracao": "Verifique logs"
-                }
-        except Exception as e:
-            print(f"Exceção ao rodar atualização: {e}")
+        if not update_lock.acquire(blocking=False):
             return {
-                "Revenda": "ERRO",
-                "DT_RowId": "CMD_EXCEPT",
+                "Revenda": "SISTEMA",
+                "DT_RowId": "CMD_RUNNING",
                 "Id_client": "",
-                "nome": f"Erro: {str(e)}",
+                "nome": "Atualizacao ja esta em andamento",
                 "telefone": "",
-                "data_expiracao": ""
+                "data_expiracao": "Consulte /atualizar/status"
             }
 
+        update_status.update({
+            "running": True,
+            "status": "running",
+            "message": "Atualizacao iniciada.",
+            "total": len(df) if df is not None else 0,
+            "returncode": None
+        })
+        threading.Thread(target=update_data_job, daemon=True).start()
+        return {
+            "Revenda": "SISTEMA",
+            "DT_RowId": "CMD_STARTED",
+            "Id_client": "00000",
+            "nome": "Atualizacao iniciada",
+            "telefone": "Rodando em background",
+            "data_expiracao": "Consulte /atualizar/status"
+        }
     # Remove o sinal de '+' se existir (ex: '+55...' -> '55...')
     # ATENÇÃO: Como agora os dados no Excel têm '+', não devemos remover o '+' da busca se o usuário mandar
     # Se o usuário mandar +55... e no banco está +55..., deve casar.
