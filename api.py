@@ -27,6 +27,8 @@ update_status = {
 }
 update_process = None
 UPDATE_LOG_FILE = os.path.join(BASE_DIR, "update_all_revendas.log")
+GESTOR_LOGIN_PAGE_URL = "https://app.gestorinove.com.br/login"
+GESTOR_LOGIN_URL = "https://app.gestorinove.com.br/valida"
 
 class SearchRequest(BaseModel):
     termo: str
@@ -36,6 +38,42 @@ class RevendaRequest(BaseModel):
     email: str
     password: str
     filename: Optional[str] = None
+
+class CredenciaisRevendaRequest(BaseModel):
+    email_atual: str
+    novo_email: str
+    nova_senha: str
+
+def testar_login_gestor(email, password):
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    })
+
+    try:
+        session.get(GESTOR_LOGIN_PAGE_URL, timeout=30)
+        response = session.post(
+            GESTOR_LOGIN_URL,
+            data={"email": email, "senha": password, "redir": ""},
+            timeout=30
+        )
+
+        if response.url == "https://app.gestorinove.com.br/painel" or "painel" in response.url:
+            return True, "Login validado com sucesso."
+
+        if "GESTOR_SESSION" in session.cookies:
+            return True, "Login validado por cookie de sessao."
+
+        response_text = unicodedata.normalize("NFKD", response.text).encode("ASCII", "ignore").decode("ASCII")
+        response_text = response_text.lower()
+        if "erro" in response_text or "invalido" in response_text:
+            return False, "Credenciais invalidas no Gestor."
+
+        return False, "Nao foi possivel confirmar o login no Gestor."
+    except requests.exceptions.RequestException as e:
+        return False, f"Erro ao conectar no Gestor: {e}"
+    finally:
+        session.close()
 
 def load_data():
     global df
@@ -872,6 +910,77 @@ def adicionar_revenda(request: RevendaRequest):
         return {"status": "sucesso", "mensagem": f"Revenda {request.nome} adicionada com sucesso.", "revenda": new_revenda}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
+
+@app.put("/revenda/credenciais")
+def atualizar_credenciais_revenda(request: CredenciaisRevendaRequest):
+    """
+    Atualiza email e senha de uma revenda existente apos validar o novo login no Gestor.
+    Mantem o mesmo arquivo JSON da revenda para preservar os dados locais.
+    Body: { "email_atual": "...", "novo_email": "...", "nova_senha": "..." }
+    """
+    LOGINS_FILE = os.path.join(BASE_DIR, "revendas_logins.json")
+    email_atual = request.email_atual.strip()
+    novo_email = request.novo_email.strip()
+    nova_senha = request.nova_senha
+
+    if not email_atual or not novo_email or not nova_senha:
+        raise HTTPException(status_code=400, detail="Informe email_atual, novo_email e nova_senha.")
+
+    if not os.path.exists(LOGINS_FILE):
+        return {"status": "erro", "mensagem": "Arquivo de logins nao encontrado."}
+
+    try:
+        with open(LOGINS_FILE, "r", encoding="utf-8") as f:
+            logins = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao ler arquivo de logins: {e}")
+
+    revenda_index = None
+    for i, revenda in enumerate(logins):
+        if revenda.get("email", "").casefold() == email_atual.casefold():
+            revenda_index = i
+            break
+
+    if revenda_index is None:
+        return {"status": "erro", "mensagem": f"Revenda com email {email_atual} nao encontrada."}
+
+    email_duplicado = any(
+        i != revenda_index and revenda.get("email", "").casefold() == novo_email.casefold()
+        for i, revenda in enumerate(logins)
+    )
+    if email_duplicado:
+        return {"status": "erro", "mensagem": "Ja existe outra revenda cadastrada com este novo email."}
+
+    login_valido, mensagem_login = testar_login_gestor(novo_email, nova_senha)
+    if not login_valido:
+        return {
+            "status": "erro",
+            "mensagem": "As novas credenciais nao foram salvas porque o login no Gestor falhou.",
+            "detalhe": mensagem_login
+        }
+
+    revenda = logins[revenda_index]
+    email_anterior = revenda.get("email")
+    revenda["email"] = novo_email
+    revenda["password"] = nova_senha
+
+    try:
+        with open(LOGINS_FILE, "w", encoding="utf-8") as f:
+            json.dump(logins, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo de logins: {e}")
+
+    return {
+        "status": "sucesso",
+        "mensagem": f"Credenciais da revenda {revenda.get('nome', '')} atualizadas com sucesso.",
+        "login_teste": mensagem_login,
+        "revenda": {
+            "nome": revenda.get("nome"),
+            "email_anterior": email_anterior,
+            "email": revenda.get("email"),
+            "filename": revenda.get("filename")
+        }
+    }
 
 class DeleteRevendaRequest(BaseModel):
     email: str
