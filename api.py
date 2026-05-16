@@ -629,6 +629,260 @@ PAINEL_HTML = '''
             .endpoint-main { grid-template-columns: 1fr; }
             .endpoint-main .btn { width: 100%; }
         }
+
+        body {
+            color: #172033;
+            background: #f4f7fb;
+        }
+
+        .shell {
+            display: block;
+            min-height: 100vh;
+        }
+
+        .sidebar,
+        .workspace {
+            display: none;
+        }
+
+        main {
+            width: min(1120px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 34px 0 54px;
+        }
+
+        .topbar {
+            align-items: center;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            color: #111827;
+            font-size: clamp(26px, 3vw, 38px);
+        }
+
+        .lead {
+            max-width: 620px;
+            color: #667085;
+        }
+
+        .btn {
+            color: #263244;
+            background: #fff;
+            border-color: #d7deea;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
+        }
+
+        .btn.primary {
+            color: #fff;
+            background: #166534;
+            border-color: #166534;
+        }
+
+        .status-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            margin: 18px 0;
+        }
+
+        .stat,
+        .panel {
+            color: #172033;
+            background: #fff;
+            border-color: #e4e9f2;
+            box-shadow: 0 14px 36px rgba(16, 24, 40, .08);
+        }
+
+        .stat-value {
+            color: #111827;
+            font-size: 28px;
+        }
+
+        .stat-label,
+        .stat-helper {
+            color: #667085;
+        }
+
+        .unified {
+            padding: 22px;
+            border: 1px solid #e4e9f2;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 14px 36px rgba(16, 24, 40, .08);
+        }
+
+        .unified-form {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .unified-input {
+            width: 100%;
+            min-height: 48px;
+            padding: 0 14px;
+            border: 1px solid #cfd8e6;
+            border-radius: 8px;
+            outline: none;
+            color: #111827;
+            background: #fff;
+        }
+
+        .unified-input:focus {
+            border-color: #166534;
+            box-shadow: 0 0 0 3px rgba(22, 101, 52, .12);
+        }
+
+        .unified-title {
+            margin: 0;
+            color: #111827;
+            font-size: 18px;
+        }
+
+        .unified-text {
+            margin: 6px 0 0;
+            color: #667085;
+            line-height: 1.45;
+        }
+
+        .results {
+            display: none;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 16px;
+        }
+
+        .results.show {
+            display: grid;
+        }
+
+        .result-card {
+            min-height: 250px;
+            padding: 18px;
+            border: 1px solid #e4e9f2;
+            border-radius: 8px;
+            background: #fbfcfe;
+        }
+
+        .result-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .result-title {
+            margin: 0;
+            color: #111827;
+            font-size: 16px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 26px;
+            padding: 0 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .badge.ok {
+            color: #166534;
+            background: #dcfce7;
+        }
+
+        .badge.warn {
+            color: #92400e;
+            background: #fef3c7;
+        }
+
+        .badge.err {
+            color: #991b1b;
+            background: #fee2e2;
+        }
+
+        .data-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .data-row {
+            display: grid;
+            grid-template-columns: 128px minmax(0, 1fr);
+            gap: 12px;
+            padding-bottom: 9px;
+            border-bottom: 1px solid #edf1f7;
+        }
+
+        .data-row:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .data-label {
+            color: #667085;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .data-value {
+            color: #172033;
+            overflow-wrap: anywhere;
+        }
+
+        .empty-result {
+            color: #667085;
+            line-height: 1.5;
+        }
+
+        .raw-toggle {
+            margin-top: 14px;
+            color: #475467;
+            background: transparent;
+            border: 0;
+            padding: 0;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        .raw-output {
+            display: none;
+            margin-top: 12px;
+            color: #344054;
+            background: #f7f9fc;
+            border-color: #e4e9f2;
+        }
+
+        .raw-output.show {
+            display: block;
+        }
+
+        @media (max-width: 820px) {
+            main {
+                width: min(100% - 22px, 1120px);
+                padding-top: 22px;
+            }
+
+            .topbar,
+            .unified-form {
+                grid-template-columns: 1fr;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .status-grid,
+            .results {
+                grid-template-columns: 1fr;
+            }
+
+            .data-row {
+                grid-template-columns: 1fr;
+                gap: 4px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -658,12 +912,25 @@ PAINEL_HTML = '''
         <main>
             <section class="topbar">
                 <div>
-                    <h1>Painel de controle</h1>
-                    <p class="lead">Interface para testar endpoints e operar os dados de revendas com respostas em tempo real.</p>
+                    <h1>Consulta de cliente</h1>
+                    <p class="lead">Pesquise uma vez e veja o retorno da base de linhas e do MaxPlayer no mesmo lugar.</p>
                 </div>
                 <div class="toolbar">
                     <button class="btn" id="refreshStatusBtn">Atualizar status</button>
                     <button class="btn primary" id="runUpdateBtn">Atualizar dados</button>
+                </div>
+            </section>
+
+            <section class="unified">
+                <h2 class="unified-title">Pesquisa unificada</h2>
+                <p class="unified-text">Digite telefone, usuario, ID ou email. Para a base de linhas, a busca usa apenas os numeros do telefone.</p>
+                <form class="unified-form" id="clientSearchForm">
+                    <input class="unified-input" id="clientSearchInput" type="search" placeholder="Ex: 5521999999999 ou usuario MaxPlayer" autocomplete="off">
+                    <button class="btn primary" id="clientSearchButton" type="submit">Pesquisar</button>
+                </form>
+                <div class="results" id="clientResults">
+                    <article class="result-card" id="lineResult"></article>
+                    <article class="result-card" id="maxplayerResult"></article>
                 </div>
             </section>
 
@@ -853,6 +1120,123 @@ PAINEL_HTML = '''
             return JSON.stringify(data, null, 2);
         }
 
+        function normalizeStatus(status) {
+            if (status === 'sucesso') return { label: 'Encontrado', className: 'ok' };
+            if (status === 'erro') return { label: 'Erro', className: 'err' };
+            if (status === 'ignorado') return { label: 'Ignorado', className: 'warn' };
+            return { label: 'Nao encontrado', className: 'warn' };
+        }
+
+        function emptyValue(value) {
+            return value === undefined || value === null || value === '' ? 'N/A' : value;
+        }
+
+        function dataRows(rows) {
+            return `
+                <div class="data-grid">
+                    ${rows.map((row) => `
+                        <div class="data-row">
+                            <div class="data-label">${escapeHtml(row[0])}</div>
+                            <div class="data-value">${escapeHtml(emptyValue(row[1]))}</div>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        function renderResultCard(targetId, title, status, rows, emptyMessage, rawData) {
+            const target = document.getElementById(targetId);
+            const badge = normalizeStatus(status);
+            const rawId = targetId + '-raw';
+            target.innerHTML = `
+                <div class="result-head">
+                    <h3 class="result-title">${escapeHtml(title)}</h3>
+                    <span class="badge ${badge.className}">${escapeHtml(badge.label)}</span>
+                </div>
+                ${rows.length ? dataRows(rows) : `<p class="empty-result">${escapeHtml(emptyMessage)}</p>`}
+                <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
+                <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
+            `;
+        }
+
+        function renderLineResult(data) {
+            const linha = data.linha || {};
+            const detalhe = linha.linha || {};
+            const rows = linha.status === 'sucesso' ? [
+                ['Telefone', detalhe.telefone],
+                ['Usuario', detalhe.usuario],
+                ['Senha', detalhe.senha],
+                ['Vencimento', detalhe.vencimento],
+                ['Dias restantes', detalhe.dias_restantes],
+                ['Status', detalhe.status_conta],
+                ['Teste', detalhe.e_teste],
+                ['Revenda', detalhe.revenda]
+            ] : [];
+
+            renderResultCard(
+                'lineResult',
+                'Base de linhas',
+                linha.status,
+                rows,
+                linha.mensagem || 'Nenhuma linha encontrada com este telefone.',
+                linha
+            );
+        }
+
+        function renderMaxplayerResult(data) {
+            const maxplayer = data.maxplayer || {};
+            const user = (maxplayer.usuarios || [])[0] || {};
+            const list = (user.listas || [])[0] || {};
+            const iptv = list.iptv || {};
+            const rows = maxplayer.status === 'sucesso' ? [
+                ['Usuario', user.usuario],
+                ['ID', user.id],
+                ['Email', user.email],
+                ['Lista', list.nome],
+                ['Dominio', iptv.fqdn],
+                ['Porta', iptv.porta],
+                ['Usuario IPTV', iptv.usuario],
+                ['Senha IPTV', iptv.senha],
+                ['Encontrados', maxplayer.total_encontrado],
+                ['Cache', maxplayer.cache]
+            ] : [];
+
+            renderResultCard(
+                'maxplayerResult',
+                'MaxPlayer',
+                maxplayer.status,
+                rows,
+                maxplayer.mensagem || 'Nenhum usuario encontrado no MaxPlayer.',
+                maxplayer
+            );
+        }
+
+        async function runUnifiedSearch(term) {
+            const button = document.getElementById('clientSearchButton');
+            const results = document.getElementById('clientResults');
+
+            button.disabled = true;
+            button.textContent = 'Pesquisando...';
+            results.classList.add('show');
+            renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
+            renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
+
+            try {
+                const data = await requestJson('/cliente/consulta', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ termo: term })
+                });
+                renderLineResult(data);
+                renderMaxplayerResult(data);
+            } catch (error) {
+                renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
+                renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Pesquisar';
+            }
+        }
+
         async function runRequest(action, method = 'GET') {
             setResponse(action.responseId, 'loading', 'Carregando...');
             try {
@@ -1037,6 +1421,25 @@ PAINEL_HTML = '''
             activeFilter = button.dataset.filter;
             document.querySelectorAll('#navFilters button').forEach((item) => item.classList.toggle('active', item === button));
             renderEndpoints();
+        });
+
+        document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const term = document.getElementById('clientSearchInput').value.trim();
+            if (!term) {
+                document.getElementById('clientSearchInput').focus();
+                return;
+            }
+            await runUnifiedSearch(term);
+        });
+
+        document.addEventListener('click', (event) => {
+            const rawButton = event.target.closest('button[data-raw-target]');
+            if (!rawButton) return;
+            const target = document.getElementById(rawButton.dataset.rawTarget);
+            if (!target) return;
+            const isOpen = target.classList.toggle('show');
+            rawButton.textContent = isOpen ? 'Ocultar JSON' : 'Ver JSON';
         });
 
         endpointList.addEventListener('click', async (event) => {
@@ -1828,6 +2231,63 @@ def pesquisar_usuario_maxplayer(request: SearchRequest):
 @app.get("/maxplayer/usuario/{usuario}")
 def pesquisar_usuario_maxplayer_get(usuario: str):
     return pesquisar_usuario_maxplayer(SearchRequest(termo=usuario))
+
+@app.post("/cliente/consulta")
+def consulta_cliente_unificada(request: SearchRequest):
+    termo = request.termo.strip()
+    if not termo:
+        raise HTTPException(status_code=400, detail="Informe um telefone, usuario, ID ou email para pesquisar.")
+
+    telefone_limpo = re.sub(r"[^\d]", "", termo)
+
+    if telefone_limpo:
+        try:
+            linha = consultar_linha_externa_get(telefone_limpo)
+        except HTTPException as e:
+            linha = {
+                "status": "erro",
+                "mensagem": e.detail
+            }
+        except Exception as e:
+            linha = {
+                "status": "erro",
+                "mensagem": str(e)
+            }
+    else:
+        linha = {
+            "status": "ignorado",
+            "mensagem": "A consulta de linhas precisa de um telefone numerico."
+        }
+
+    try:
+        maxplayer = pesquisar_usuario_maxplayer(SearchRequest(termo=termo))
+    except HTTPException as e:
+        maxplayer = {
+            "status": "erro",
+            "mensagem": e.detail,
+            "usuarios": []
+        }
+    except Exception as e:
+        maxplayer = {
+            "status": "erro",
+            "mensagem": str(e),
+            "usuarios": []
+        }
+
+    linha_encontrada = linha.get("status") == "sucesso"
+    maxplayer_encontrado = maxplayer.get("status") == "sucesso"
+
+    return {
+        "status": "sucesso" if linha_encontrada or maxplayer_encontrado else "nao_encontrado",
+        "termo_buscado": termo,
+        "telefone_normalizado": telefone_limpo,
+        "resumo": {
+            "linha_encontrada": linha_encontrada,
+            "maxplayer_encontrado": maxplayer_encontrado
+        },
+        "linha": linha,
+        "maxplayer": maxplayer
+    }
 
 if __name__ == "__main__":
     import uvicorn
