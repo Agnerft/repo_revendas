@@ -1,4 +1,4 @@
-const VERSION = '3.6';
+const VERSION = '3.7';
         const endpoints = [
             {
                 method: 'GET',
@@ -316,13 +316,11 @@ const VERSION = '3.6';
                     </div>`;
             }
 
-            if ((row[2] === 'copy' || row[2] === 'access') && row[1] && row[1] !== 'N/A') {
-                const copyValue = row[2] === 'access' ? row[3] : row[1];
-                const copyLabel = row[2] === 'access' ? 'dados de acesso' : row[0];
+            if (row[2] === 'copy' && row[1] && row[1] !== 'N/A') {
                 return `
                     <div class="copy-value">
                         <span>${escapeHtml(value)}</span>
-                        <button class="copy-link" type="button" data-copy-value="${escapeHtml(copyValue)}" title="Copiar ${escapeHtml(copyLabel)}" aria-label="Copiar ${escapeHtml(copyLabel)}">${copyIcon('Copiar ' + copyLabel)}</button>
+                        <button class="copy-link" type="button" data-copy-value="${escapeHtml(row[1])}" title="Copiar ${escapeHtml(row[0])}" aria-label="Copiar ${escapeHtml(row[0])}">${copyIcon('Copiar ' + row[0])}</button>
                     </div>`;
             }
 
@@ -339,6 +337,14 @@ const VERSION = '3.6';
                         </div>
                     `).join('')}
                 </div>`;
+        }
+
+        function accessSelectButton(message) {
+            if (!message) return '';
+            return `
+                <button class="btn secondary select-data-btn" type="button" data-copy-value="${escapeHtml(message)}">
+                    Selecionar dados
+                </button>`;
         }
 
         function renderResultCard(targetId, title, status, rows, emptyMessage, rawData) {
@@ -520,8 +526,8 @@ const VERSION = '3.6';
             });
             const rows = linha.status === 'sucesso' ? [
                 ['Telefone', detalhe.telefone],
-                ['Usuario', detalhe.usuario, 'access', accessMessage],
-                ['Senha', detalhe.senha, 'access', accessMessage],
+                ['Usuario', detalhe.usuario],
+                ['Senha', detalhe.senha],
                 ['Vencimento', detalhe.vencimento],
                 ['Dias restantes', detalhe.dias_restantes],
                 ['Status', detalhe.status_conta],
@@ -537,6 +543,10 @@ const VERSION = '3.6';
                 linha.mensagem || 'Nenhuma linha encontrada com este telefone.',
                 linha
             );
+
+            if (linha.status === 'sucesso') {
+                document.getElementById('lineResult').insertAdjacentHTML('beforeend', accessSelectButton(accessMessage));
+            }
         }
 
         function renderMaxplayerResult(data) {
@@ -552,14 +562,14 @@ const VERSION = '3.6';
                 vencimento: user.vencimento || list.vencimento || data.linha?.linha?.vencimento_completo || data.linha?.linha?.vencimento
             });
             const rows = maxplayer.status === 'sucesso' ? [
-                ['Usuario', user.usuario, 'access', accessMessage],
+                ['Usuario', user.usuario],
                 ['ID', user.id],
                 ['Email', user.email],
                 ['Lista', list.nome],
                 ['Dominio', iptv.fqdn],
                 ['Porta', iptv.porta],
-                ['Usuario IPTV', iptv.usuario, 'access', accessMessage],
-                ['Senha IPTV', iptv.senha, 'access', accessMessage],
+                ['Usuario IPTV', iptv.usuario],
+                ['Senha IPTV', iptv.senha],
                 ['Encontrados', maxplayer.total_encontrado],
                 ['Cache', maxplayer.cache]
             ] : [];
@@ -574,6 +584,7 @@ const VERSION = '3.6';
             );
 
             if (maxplayer.status === 'sucesso') {
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', accessSelectButton(accessMessage));
                 document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerDomainForm(user));
             } else {
                 document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerCreateForm(data));
@@ -599,19 +610,19 @@ const VERSION = '3.6';
                 vencimento: freeLine.vencimento
             });
             const rows = maxplayerFree.status === 'sucesso' ? [
-                ['Usuario', user.usuario, 'access', userAccessMessage],
+                ['Usuario', user.usuario],
                 ['ID', user.id],
                 ['Line ID', user.line_id],
-                ['Senha', user.senha, 'access', userAccessMessage],
+                ['Senha', user.senha],
                 ['Vencimento', user.vencimento],
                 ['Dominio', user.dominio],
                 ['Tipo', formatTrialValue(user.e_teste)],
                 ['Encontrados', maxplayerFree.total_encontrado],
                 ['Cache', maxplayerFree.cache]
             ] : freeLine.id ? [
-                ['Linha encontrada', freeLine.usuario, 'access', lineAccessMessage],
+                ['Linha encontrada', freeLine.usuario],
                 ['Line ID', freeLine.id],
-                ['Senha linha', freeLine.senha, 'access', lineAccessMessage],
+                ['Senha linha', freeLine.senha],
                 ['Vencimento', freeLine.vencimento],
                 ['Tipo', formatTrialValue(freeLine.e_teste)]
             ] : [];
@@ -629,7 +640,12 @@ const VERSION = '3.6';
             );
 
             if (maxplayerFree.status !== 'sucesso') {
+                if (freeLine.id) {
+                    document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', accessSelectButton(lineAccessMessage));
+                }
                 document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', maxplayerFreeCreateForm(data));
+            } else {
+                document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', accessSelectButton(userAccessMessage));
             }
         }
 
@@ -886,10 +902,19 @@ const VERSION = '3.6';
                 const value = copyButton.dataset.copyValue;
                 copyText(value).then(() => {
                     const original = copyButton.innerHTML;
-                    copyButton.innerHTML = checkIcon();
+                    const isTextButton = copyButton.classList.contains('select-data-btn');
+                    if (isTextButton) {
+                        copyButton.textContent = 'Dados copiados';
+                    } else {
+                        copyButton.innerHTML = checkIcon();
+                    }
                     copyButton.classList.add('copied');
                     window.setTimeout(() => {
-                        copyButton.innerHTML = original;
+                        if (isTextButton) {
+                            copyButton.textContent = 'Selecionar dados';
+                        } else {
+                            copyButton.innerHTML = original;
+                        }
                         copyButton.classList.remove('copied');
                     }, 1400);
                 }).catch(() => {

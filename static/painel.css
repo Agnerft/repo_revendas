@@ -694,6 +694,8 @@
         .inline-form {
             display: grid;
             gap: 10px;
+            width: 100%;
+            min-width: 0;
             margin-top: 14px;
             padding-top: 14px;
             border-top: 1px solid #edf1f7;
@@ -708,6 +710,9 @@
 
         .inline-form select,
         .inline-form input {
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
             min-height: 38px;
             padding: 0 10px;
             border: 1px solid #cfd8e6;
@@ -718,6 +723,22 @@
 
         .inline-form .btn {
             justify-self: start;
+        }
+
+        .select-data-btn {
+            width: 100%;
+            justify-content: center;
+            margin-top: 14px;
+            color: #14532d;
+            border-color: #bbf7d0;
+            background: #dcfce7;
+        }
+
+        .select-data-btn:hover,
+        .select-data-btn.copied {
+            color: #fff;
+            border-color: #16a34a;
+            background: #16a34a;
         }
 
         .value-link {
