@@ -564,6 +564,61 @@
             box-shadow: 0 0 0 3px rgba(22, 101, 52, .12);
         }
 
+        .summary-card {
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 16px;
+            border: 1px solid #dbe7f3;
+            border-radius: 8px;
+            background: #f8fbff;
+        }
+
+        .summary-line {
+            margin: 0;
+            color: #172033;
+            font-size: 16px;
+            line-height: 1.45;
+        }
+
+        .summary-statuses,
+        .summary-alerts {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .summary-pill {
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 0 10px;
+            border: 1px solid #d7deea;
+            border-radius: 999px;
+            color: #344054;
+            background: #fff;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .summary-pill.ok {
+            color: #166534;
+            border-color: #bbf7d0;
+            background: #dcfce7;
+        }
+
+        .summary-pill.warn {
+            color: #92400e;
+            border-color: #fde68a;
+            background: #fef3c7;
+        }
+
+        .summary-pill.err {
+            color: #991b1b;
+            border-color: #fecaca;
+            background: #fee2e2;
+        }
+
         .unified-title {
             margin: 0;
             color: #111827;
@@ -750,6 +805,12 @@
             background: #16a34a;
         }
 
+        .copy-action-btn {
+            width: 100%;
+            justify-content: center;
+            min-height: 36px;
+        }
+
         .value-link {
             display: inline-flex;
             align-items: center;
@@ -866,6 +927,7 @@
 
         body.theme-dark .lead,
         body.theme-dark .unified-text,
+        body.theme-dark .summary-line,
         body.theme-dark .stat-label,
         body.theme-dark .stat-helper,
         body.theme-dark .data-label,
@@ -876,6 +938,7 @@
         }
 
         body.theme-dark .unified,
+        body.theme-dark .summary-card,
         body.theme-dark .stat,
         body.theme-dark .panel,
         body.theme-dark .result-card,

@@ -829,6 +829,25 @@ def reload_data():
 API_KEY_EXTERNA = os.getenv("PAINEL_BEST_API_KEY", "")
 API_BASE_URL = os.getenv("PAINEL_BEST_BASE_URL", "https://api.painel.best/lines/")
 
+def normalize_linha_search_term(value):
+    text = str(value or "").strip()
+    digits = re.sub(r"[^\d]", "", text)
+    if len(digits) >= 8:
+        return digits
+    return text
+
+def build_m3u_url(linha, url_type):
+    username = linha.get("username")
+    password = linha.get("password")
+    dns = linha.get("dns")
+    if not username or not password or not dns:
+        return "N/A"
+
+    base = str(dns).strip()
+    if not base.startswith(("http://", "https://")):
+        base = "http://" + base
+    return f"{base}/get.php?username={username}&password={password}&type={url_type}&output=ts"
+
 def format_timestamp_date(value, with_time=False):
     if not value:
         return "N/A"
@@ -856,7 +875,8 @@ def format_linha_externa(linha):
         "criado_em": format_timestamp_date(linha.get("created_at")),
         "atualizado_em": format_timestamp_date(linha.get("updated_at"), with_time=True),
         "dns": linha.get("dns", "N/A"),
-        "url_m3u": linha.get("url_m3u", "N/A"),
+        "url_m3u": build_m3u_url(linha, "m3u"),
+        "url_m3u_plus": build_m3u_url(linha, "m3u_plus"),
         "email": linha.get("email", "N/A"),
         "valor_plano": linha.get("plan_value", "N/A"),
         "tipo": linha.get("type", "N/A"),
@@ -879,14 +899,14 @@ def consultar_linha_externa(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Telefone nÃ£o informado")
     
     # Remove caracteres nÃ£o numÃ©ricos para a busca
-    telefone_limpo = re.sub(r'[^\d]', '', telefone)
+    termo_busca = normalize_linha_search_term(telefone)
     
     headers = {
         'Api-Key': api_key
     }
     
     params = {
-        'search': telefone_limpo,
+        'search': termo_busca,
         'page': 1,
         'per_page': 100
     }
@@ -967,14 +987,14 @@ def consultar_linha_externa_get(telefone: str):
     api_key = require_setting(API_KEY_EXTERNA, "PAINEL_BEST_API_KEY")
 
     # Remove caracteres nÃ£o numÃ©ricos
-    telefone_limpo = re.sub(r'[^\d]', '', telefone)
+    termo_busca = normalize_linha_search_term(telefone)
     
     headers = {
         'Api-Key': api_key
     }
     
     params = {
-        'search': telefone_limpo,
+        'search': termo_busca,
         'page': 1,
         'per_page': 100
     }
@@ -1694,15 +1714,15 @@ def consulta_revenda_result(termo):
             "Link": "nao_encontrado"
         }
 
-def consulta_linha_result(telefone_limpo):
-    if not telefone_limpo:
+def consulta_linha_result(termo):
+    if not termo:
         return {
             "status": "ignorado",
-            "mensagem": "A consulta de linhas precisa de um telefone numerico."
+            "mensagem": "A consulta The Best precisa de um termo de busca."
         }
 
     try:
-        return consultar_linha_externa_get(telefone_limpo)
+        return consultar_linha_externa_get(termo)
     except HTTPException as e:
         return {
             "status": "erro",
@@ -1772,7 +1792,7 @@ def consulta_cliente_unificada(request: SearchRequest):
 
     tasks = {
         "revenda": (consulta_revenda_result, termo),
-        "linha": (consulta_linha_result, telefone_limpo),
+        "linha": (consulta_linha_result, termo),
         "maxplayer": (consulta_maxplayer_result, termo),
         "maxplayer_free": (consulta_maxplayer_free_result, termo),
         "maxplayer_free_linhas": (consulta_maxplayer_free_linhas_result, termo)

@@ -1,4 +1,4 @@
-const VERSION = '3.9';
+const VERSION = '3.10';
         const endpoints = [
             {
                 method: 'GET',
@@ -323,6 +323,13 @@ const VERSION = '3.9';
 
         function renderDataValue(row) {
             const value = emptyValue(row[1]);
+            if (row[2] === 'copy-button' && row[1] && row[1] !== 'N/A') {
+                return `
+                    <button class="btn secondary copy-action-btn" type="button" data-copy-value="${escapeHtml(row[1])}">
+                        Copiar ${escapeHtml(row[0])}
+                    </button>`;
+            }
+
             if (row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado') {
                 return `
                     <div class="link-actions">
@@ -375,6 +382,64 @@ const VERSION = '3.9';
                 <button class="raw-toggle" type="button" data-raw-target="${rawId}">Ver JSON</button>
                 <pre class="raw-output" id="${rawId}">${escapeHtml(pretty(rawData))}</pre>
             `;
+        }
+
+        function statusPill(label, state) {
+            return `<span class="summary-pill ${state}">${escapeHtml(label)}</span>`;
+        }
+
+        function foundStatus(value) {
+            return value === 'sucesso';
+        }
+
+        function buildSummary(data) {
+            const revenda = data.revenda || {};
+            const linha = data.linha || {};
+            const detalhe = linha.linha || {};
+            const maxplayer = data.maxplayer || {};
+            const maxplayerFree = data.maxplayer_free || {};
+            const lineOk = foundStatus(linha.status);
+            const paymentOk = foundStatus(revenda.status);
+            const maxOk = foundStatus(maxplayer.status);
+            const freeOk = foundStatus(maxplayerFree.status);
+            const cliente = revenda.nome || detalhe.usuario || data.termo_buscado || 'cliente';
+            const vencimento = detalhe.vencimento || formatDisplayDate(revenda.data_expiracao) || 'N/A';
+            const statusLinha = detalhe.status_interno && detalhe.status_interno !== 'N/A' ? `, status The Best: ${detalhe.status_interno}` : '';
+            const parts = [
+                `Consulta de ${cliente}:`,
+                lineOk ? `linha The Best encontrada com usuario ${emptyValue(detalhe.usuario)}` : 'linha The Best nao encontrada',
+                paymentOk ? `pagamento encontrado em ${emptyValue(revenda.Revenda)}` : 'pagamento nao encontrado',
+                maxOk ? 'MaxPlayer encontrado' : 'MaxPlayer nao encontrado',
+                `vencimento ${emptyValue(vencimento)}${statusLinha}.`
+            ];
+
+            const alerts = [];
+            const days = Number(detalhe.dias_restantes);
+            if (lineOk && (detalhe.status_interno === 'expired' || days <= 0)) {
+                alerts.push(statusPill('Linha vencida ou com 0 dias', 'warn'));
+            }
+            if (paymentOk && lineOk && revenda.telefone && detalhe.telefone && registeredPhone(revenda.telefone) !== registeredPhone(detalhe.telefone)) {
+                alerts.push(statusPill('Telefones diferentes', 'warn'));
+            }
+            if (paymentOk && !lineOk) alerts.push(statusPill('Tem pagamento, sem The Best', 'warn'));
+            if (lineOk && !maxOk) alerts.push(statusPill('Tem The Best, sem MaxPlayer', 'warn'));
+
+            return `
+                <p class="summary-line">${escapeHtml(parts.join(' '))}</p>
+                <div class="summary-statuses">
+                    ${statusPill(`The Best: ${lineOk ? 'encontrado' : 'nao encontrado'}`, lineOk ? 'ok' : 'warn')}
+                    ${statusPill(`Pagamentos: ${paymentOk ? 'encontrado' : 'nao encontrado'}`, paymentOk ? 'ok' : 'warn')}
+                    ${statusPill(`MaxPlayer: ${maxOk ? 'encontrado' : 'nao encontrado'}`, maxOk ? 'ok' : 'warn')}
+                    ${statusPill(`Free: ${freeOk ? 'encontrado' : 'nao encontrado'}`, freeOk ? 'ok' : 'warn')}
+                </div>
+                ${alerts.length ? `<div class="summary-alerts">${alerts.join('')}</div>` : ''}
+            `;
+        }
+
+        function renderSummary(data) {
+            const summary = document.getElementById('clientSummary');
+            summary.innerHTML = buildSummary(data);
+            summary.hidden = false;
         }
 
         function domainOptions(selectedId = '') {
@@ -521,7 +586,7 @@ const VERSION = '3.9';
 
             renderResultCard(
                 'resellerResult',
-                'Revenda e pagamento',
+                'Pagamentos',
                 revenda.status,
                 rows,
                 revenda.mensagem || 'Nenhum cadastro encontrado na base das revendas.',
@@ -553,15 +618,16 @@ const VERSION = '3.9';
                 ['Revenda', detalhe.revenda],
                 ['Criado em', detalhe.criado_em],
                 ['Atualizado em', detalhe.atualizado_em],
-                ['M3U', detalhe.url_m3u, 'link']
+                ['M3U Plus', detalhe.url_m3u_plus, 'copy-button'],
+                ['M3U', detalhe.url_m3u, 'copy-button']
             ] : [];
 
             renderResultCard(
                 'lineResult',
-                'Base de linhas',
+                'The Best',
                 linha.status,
                 rows,
-                linha.mensagem || 'Nenhuma linha encontrada com este telefone.',
+                linha.mensagem || 'Nenhuma linha encontrada no The Best.',
                 linha
             );
 
@@ -673,12 +739,15 @@ const VERSION = '3.9';
         async function runUnifiedSearch(term) {
             const button = document.getElementById('clientSearchButton');
             const results = document.getElementById('clientResults');
+            const summary = document.getElementById('clientSummary');
 
             button.disabled = true;
             button.textContent = 'Pesquisando...';
+            summary.hidden = true;
+            summary.innerHTML = '';
             results.classList.add('show');
-            renderResultCard('resellerResult', 'Revenda e pagamento', 'ignorado', [], 'Consultando base das revendas...', {});
-            renderResultCard('lineResult', 'Base de linhas', 'ignorado', [], 'Consultando base de linhas...', {});
+            renderResultCard('lineResult', 'The Best', 'ignorado', [], 'Consultando The Best...', {});
+            renderResultCard('resellerResult', 'Pagamentos', 'ignorado', [], 'Consultando pagamentos...', {});
             renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
             renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'ignorado', [], 'Consultando MaxPlayer Free...', {});
 
@@ -689,15 +758,16 @@ const VERSION = '3.9';
                     body: JSON.stringify({ termo: term })
                 });
                 lastUnifiedData = data;
-                renderResellerResult(data);
                 renderLineResult(data);
+                renderResellerResult(data);
                 renderMaxplayerResult(data);
                 renderMaxplayerFreeResult(data);
+                renderSummary(data);
                 loadMaxplayerDomains();
                 loadMaxplayerFreeDomains();
             } catch (error) {
-                renderResultCard('resellerResult', 'Revenda e pagamento', 'erro', [], error.message, {});
-                renderResultCard('lineResult', 'Base de linhas', 'erro', [], error.message, {});
+                renderResultCard('lineResult', 'The Best', 'erro', [], error.message, {});
+                renderResultCard('resellerResult', 'Pagamentos', 'erro', [], error.message, {});
                 renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
                 renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'erro', [], error.message, {});
             } finally {

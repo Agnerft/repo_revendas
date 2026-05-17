@@ -49,14 +49,15 @@
 
             <section class="unified">
                 <h2 class="unified-title">Pesquisa unificada</h2>
-                <p class="unified-text">Digite telefone, usuario, ID ou email. Para a base de linhas, a busca usa apenas os numeros do telefone.</p>
+                <p class="unified-text">Digite telefone, usuario, ID, nome ou email. A busca tenta normalizar o termo em todas as bases.</p>
                 <form class="unified-form" id="clientSearchForm">
                     <input class="unified-input" id="clientSearchInput" type="search" placeholder="Ex: 5521999999999 ou usuario MaxPlayer" autocomplete="off">
                     <button class="btn primary" id="clientSearchButton" type="submit">Pesquisar</button>
                 </form>
+                <div class="summary-card" id="clientSummary" hidden></div>
                 <div class="results" id="clientResults">
-                    <article class="result-card" id="resellerResult"></article>
                     <article class="result-card" id="lineResult"></article>
+                    <article class="result-card" id="resellerResult"></article>
                     <article class="result-card" id="maxplayerResult"></article>
                     <article class="result-card" id="maxplayerFreeResult"></article>
                 </div>
@@ -109,6 +110,6 @@
         </main>
     </div>
 
-    <script src="/static/painel.js?v=20260517-2"></script>
+    <script src="/static/painel.js?v=20260517-3"></script>
 </body>
 </html>
