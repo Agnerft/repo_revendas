@@ -1,4 +1,4 @@
-const VERSION = '3.10';
+const VERSION = '3.13';
         const endpoints = [
             {
                 method: 'GET',
@@ -392,31 +392,36 @@ const VERSION = '3.10';
             return value === 'sucesso';
         }
 
+        function usefulValue(...values) {
+            for (const value of values) {
+                const text = emptyValue(value);
+                if (text !== 'N/A' && text !== 'nao_encontrado' && text !== 'não encontrado') {
+                    return text;
+                }
+            }
+            return 'Cliente';
+        }
+
         function buildSummary(data) {
             const revenda = data.revenda || {};
             const linha = data.linha || {};
             const detalhe = linha.linha || {};
             const maxplayer = data.maxplayer || {};
-            const maxplayerFree = data.maxplayer_free || {};
             const lineOk = foundStatus(linha.status);
             const paymentOk = foundStatus(revenda.status);
             const maxOk = foundStatus(maxplayer.status);
-            const freeOk = foundStatus(maxplayerFree.status);
-            const cliente = revenda.nome || detalhe.usuario || data.termo_buscado || 'cliente';
-            const vencimento = detalhe.vencimento || formatDisplayDate(revenda.data_expiracao) || 'N/A';
-            const statusLinha = detalhe.status_interno && detalhe.status_interno !== 'N/A' ? `, status The Best: ${detalhe.status_interno}` : '';
-            const parts = [
-                `Consulta de ${cliente}:`,
-                lineOk ? `linha The Best encontrada com usuario ${emptyValue(detalhe.usuario)}` : 'linha The Best nao encontrada',
-                paymentOk ? `pagamento encontrado em ${emptyValue(revenda.Revenda)}` : 'pagamento nao encontrado',
-                maxOk ? 'MaxPlayer encontrado' : 'MaxPlayer nao encontrado',
-                `vencimento ${emptyValue(vencimento)}${statusLinha}.`
-            ];
+            const cliente = usefulValue(revenda.nome, detalhe.usuario, data.termo_buscado);
+            const usuario = usefulValue(detalhe.usuario, data.termo_buscado);
+            const vencimento = usefulValue(detalhe.vencimento, formatDisplayDate(revenda.data_expiracao), 'N/A');
+            const statusLinha = usefulValue(detalhe.status_interno, detalhe.status_conta, 'N/A');
+            const headline = lineOk
+                ? `${cliente} | Usuario: ${usuario} | Vencimento: ${vencimento} | The Best: ${statusLinha}`
+                : `${cliente} | The Best nao encontrado`;
 
             const alerts = [];
             const days = Number(detalhe.dias_restantes);
             if (lineOk && (detalhe.status_interno === 'expired' || days <= 0)) {
-                alerts.push(statusPill('Linha vencida ou com 0 dias', 'warn'));
+                alerts.push(statusPill('Vence hoje ou ja venceu', 'warn'));
             }
             if (paymentOk && lineOk && revenda.telefone && detalhe.telefone && registeredPhone(revenda.telefone) !== registeredPhone(detalhe.telefone)) {
                 alerts.push(statusPill('Telefones diferentes', 'warn'));
@@ -425,12 +430,11 @@ const VERSION = '3.10';
             if (lineOk && !maxOk) alerts.push(statusPill('Tem The Best, sem MaxPlayer', 'warn'));
 
             return `
-                <p class="summary-line">${escapeHtml(parts.join(' '))}</p>
+                <p class="summary-line">${escapeHtml(headline)}</p>
                 <div class="summary-statuses">
                     ${statusPill(`The Best: ${lineOk ? 'encontrado' : 'nao encontrado'}`, lineOk ? 'ok' : 'warn')}
                     ${statusPill(`Pagamentos: ${paymentOk ? 'encontrado' : 'nao encontrado'}`, paymentOk ? 'ok' : 'warn')}
                     ${statusPill(`MaxPlayer: ${maxOk ? 'encontrado' : 'nao encontrado'}`, maxOk ? 'ok' : 'warn')}
-                    ${statusPill(`Free: ${freeOk ? 'encontrado' : 'nao encontrado'}`, freeOk ? 'ok' : 'warn')}
                 </div>
                 ${alerts.length ? `<div class="summary-alerts">${alerts.join('')}</div>` : ''}
             `;
@@ -440,6 +444,11 @@ const VERSION = '3.10';
             const summary = document.getElementById('clientSummary');
             summary.innerHTML = buildSummary(data);
             summary.hidden = false;
+        }
+
+        function shouldShowMaxplayerFree(data) {
+            const revenda = String(data?.linha?.linha?.revenda || '').trim().toLowerCase();
+            return revenda === 'tdscr7milgols';
         }
 
         function domainOptions(selectedId = '') {
@@ -736,6 +745,40 @@ const VERSION = '3.10';
             }
         }
 
+        async function loadMaxplayerFreeLine(data, term) {
+            if (!shouldShowMaxplayerFree(data)) {
+                document.getElementById('maxplayerFreeResult').hidden = true;
+                return;
+            }
+
+            document.getElementById('maxplayerFreeResult').hidden = false;
+            renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'ignorado', [], 'Consultando Free em segundo plano...', {});
+            try {
+                const freeLine = await requestJson('/maxplayer-free/linha', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ termo: term })
+                });
+                const nextData = {
+                    ...data,
+                    maxplayer_free_linhas: freeLine
+                };
+                lastUnifiedData = nextData;
+                renderMaxplayerFreeResult(nextData);
+                loadMaxplayerFreeDomains();
+            } catch (error) {
+                const nextData = {
+                    ...data,
+                    maxplayer_free_linhas: {
+                        status: 'erro',
+                        mensagem: error.message,
+                        linhas: []
+                    }
+                };
+                renderMaxplayerFreeResult(nextData);
+            }
+        }
+
         async function runUnifiedSearch(term) {
             const button = document.getElementById('clientSearchButton');
             const results = document.getElementById('clientResults');
@@ -749,7 +792,7 @@ const VERSION = '3.10';
             renderResultCard('lineResult', 'The Best', 'ignorado', [], 'Consultando The Best...', {});
             renderResultCard('resellerResult', 'Pagamentos', 'ignorado', [], 'Consultando pagamentos...', {});
             renderResultCard('maxplayerResult', 'MaxPlayer', 'ignorado', [], 'Consultando MaxPlayer...', {});
-            renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'ignorado', [], 'Consultando MaxPlayer Free...', {});
+            document.getElementById('maxplayerFreeResult').hidden = true;
 
             try {
                 const data = await requestJson('/cliente/consulta', {
@@ -761,15 +804,14 @@ const VERSION = '3.10';
                 renderLineResult(data);
                 renderResellerResult(data);
                 renderMaxplayerResult(data);
-                renderMaxplayerFreeResult(data);
                 renderSummary(data);
                 loadMaxplayerDomains();
-                loadMaxplayerFreeDomains();
+                loadMaxplayerFreeLine(data, term);
             } catch (error) {
                 renderResultCard('lineResult', 'The Best', 'erro', [], error.message, {});
                 renderResultCard('resellerResult', 'Pagamentos', 'erro', [], error.message, {});
                 renderResultCard('maxplayerResult', 'MaxPlayer', 'erro', [], error.message, {});
-                renderResultCard('maxplayerFreeResult', 'MaxPlayer Free', 'erro', [], error.message, {});
+                document.getElementById('maxplayerFreeResult').hidden = true;
             } finally {
                 button.disabled = false;
                 button.textContent = 'Pesquisar';

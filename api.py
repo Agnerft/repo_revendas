@@ -1071,7 +1071,7 @@ MAXPLAYER_API_TOKEN = os.getenv("MAXPLAYER_API_TOKEN", "")
 MAXPLAYER_PANEL_TOKEN = os.getenv("MAXPLAYER_PANEL_TOKEN", "")
 MAXPLAYER_USERS_URL = "https://api.maxplayer.tv/v3/api/public/users"
 MAXPLAYER_PANEL_BASE_URL = "https://api.maxplayer.tv/v3"
-MAXPLAYER_CACHE_SECONDS = int(os.getenv("MAXPLAYER_CACHE_SECONDS", "300"))
+MAXPLAYER_CACHE_SECONDS = int(os.getenv("MAXPLAYER_CACHE_SECONDS", "1800"))
 maxplayer_cache = {
     "loaded_at": 0,
     "users": None
@@ -1793,9 +1793,7 @@ def consulta_cliente_unificada(request: SearchRequest):
     tasks = {
         "revenda": (consulta_revenda_result, termo),
         "linha": (consulta_linha_result, termo),
-        "maxplayer": (consulta_maxplayer_result, termo),
-        "maxplayer_free": (consulta_maxplayer_free_result, termo),
-        "maxplayer_free_linhas": (consulta_maxplayer_free_linhas_result, termo)
+        "maxplayer": (consulta_maxplayer_result, termo)
     }
     results = {}
 
@@ -1810,8 +1808,16 @@ def consulta_cliente_unificada(request: SearchRequest):
     revenda = results["revenda"]
     linha = results["linha"]
     maxplayer = results["maxplayer"]
-    maxplayer_free = results["maxplayer_free"]
-    maxplayer_free_linhas = results["maxplayer_free_linhas"]
+    maxplayer_free = {
+        "status": "ignorado",
+        "mensagem": "Busca de usuario Free pulada para manter a consulta principal rapida.",
+        "usuarios": []
+    }
+    maxplayer_free_linhas = {
+        "status": "ignorado",
+        "mensagem": "Consulta Free carregada separadamente no painel.",
+        "linhas": []
+    }
 
     linha_encontrada = linha.get("status") == "sucesso"
     maxplayer_encontrado = maxplayer.get("status") == "sucesso"
