@@ -1,4 +1,4 @@
-const VERSION = '3.4';
+const VERSION = '3.6';
         const endpoints = [
             {
                 method: 'GET',
@@ -272,17 +272,70 @@ const VERSION = '3.4';
             }
         }
 
+        function registeredPhone(value) {
+            const text = emptyValue(value);
+            if (text === 'N/A') return text;
+            return String(text).split('@')[0];
+        }
+
+        function formatValidUntil(value) {
+            const text = emptyValue(value);
+            if (text === 'N/A') return text;
+            if (text.includes(' as ')) return text.replace(' as ', ' às ');
+            if (text.includes(' às ')) return text;
+
+            const date = new Date(text);
+            if (!Number.isNaN(date.getTime())) {
+                const day = date.toLocaleDateString('pt-BR');
+                const hour = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                return `${day} às ${hour}`;
+            }
+
+            return text;
+        }
+
+        function buildAccessMessage(data) {
+            return [
+                'AQUI ESTÃO SEUS DADOS DE ACESSO 📺',
+                `👤 Usuário: ${emptyValue(data.usuario)}`,
+                `🔑 Senha: ${emptyValue(data.senha)}`,
+                `🖥️ Número de telas: ${emptyValue(data.telas || 1)}`,
+                `📱 Telefone cadastrado: ${registeredPhone(data.telefone || data.usuario)}`,
+                '',
+                `📅 Válido até: ${formatValidUntil(data.vencimento)}`
+            ].join('\n');
+        }
+
+        function renderDataValue(row) {
+            const value = emptyValue(row[1]);
+            if (row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado') {
+                return `
+                    <div class="link-actions">
+                        <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
+                        <button class="copy-link" type="button" data-copy-value="${escapeHtml(row[1])}" title="Copiar link" aria-label="Copiar link">${copyIcon()}</button>
+                    </div>`;
+            }
+
+            if ((row[2] === 'copy' || row[2] === 'access') && row[1] && row[1] !== 'N/A') {
+                const copyValue = row[2] === 'access' ? row[3] : row[1];
+                const copyLabel = row[2] === 'access' ? 'dados de acesso' : row[0];
+                return `
+                    <div class="copy-value">
+                        <span>${escapeHtml(value)}</span>
+                        <button class="copy-link" type="button" data-copy-value="${escapeHtml(copyValue)}" title="Copiar ${escapeHtml(copyLabel)}" aria-label="Copiar ${escapeHtml(copyLabel)}">${copyIcon('Copiar ' + copyLabel)}</button>
+                    </div>`;
+            }
+
+            return escapeHtml(value);
+        }
+
         function dataRows(rows) {
             return `
                 <div class="data-grid">
                     ${rows.map((row) => `
                         <div class="data-row">
                             <div class="data-label">${escapeHtml(row[0])}</div>
-                            <div class="data-value">${row[2] === 'link' && row[1] && row[1] !== 'nao_encontrado' ? `
-                                <div class="link-actions">
-                                    <a class="value-link" href="${escapeHtml(row[1])}" target="_blank" rel="noopener">Abrir link</a>
-                                    <button class="copy-link" type="button" data-copy-link="${escapeHtml(row[1])}" title="Copiar link" aria-label="Copiar link">${copyIcon()}</button>
-                                </div>` : escapeHtml(emptyValue(row[1]))}</div>
+                            <div class="data-value">${renderDataValue(row)}</div>
                         </div>
                     `).join('')}
                 </div>`;
@@ -458,10 +511,17 @@ const VERSION = '3.4';
         function renderLineResult(data) {
             const linha = data.linha || {};
             const detalhe = linha.linha || {};
+            const accessMessage = buildAccessMessage({
+                usuario: detalhe.usuario,
+                senha: detalhe.senha,
+                telas: detalhe.telas || 1,
+                telefone: detalhe.telefone || data.telefone_normalizado || detalhe.usuario,
+                vencimento: detalhe.vencimento_completo || detalhe.vencimento
+            });
             const rows = linha.status === 'sucesso' ? [
                 ['Telefone', detalhe.telefone],
-                ['Usuario', detalhe.usuario],
-                ['Senha', detalhe.senha],
+                ['Usuario', detalhe.usuario, 'access', accessMessage],
+                ['Senha', detalhe.senha, 'access', accessMessage],
                 ['Vencimento', detalhe.vencimento],
                 ['Dias restantes', detalhe.dias_restantes],
                 ['Status', detalhe.status_conta],
@@ -484,15 +544,22 @@ const VERSION = '3.4';
             const user = (maxplayer.usuarios || [])[0] || {};
             const list = (user.listas || [])[0] || {};
             const iptv = list.iptv || {};
+            const accessMessage = buildAccessMessage({
+                usuario: iptv.usuario || user.usuario,
+                senha: iptv.senha,
+                telas: user.telas || list.telas || 1,
+                telefone: iptv.usuario || data.telefone_normalizado || user.usuario,
+                vencimento: user.vencimento || list.vencimento || data.linha?.linha?.vencimento_completo || data.linha?.linha?.vencimento
+            });
             const rows = maxplayer.status === 'sucesso' ? [
-                ['Usuario', user.usuario],
+                ['Usuario', user.usuario, 'access', accessMessage],
                 ['ID', user.id],
                 ['Email', user.email],
                 ['Lista', list.nome],
                 ['Dominio', iptv.fqdn],
                 ['Porta', iptv.porta],
-                ['Usuario IPTV', iptv.usuario],
-                ['Senha IPTV', iptv.senha],
+                ['Usuario IPTV', iptv.usuario, 'access', accessMessage],
+                ['Senha IPTV', iptv.senha, 'access', accessMessage],
                 ['Encontrados', maxplayer.total_encontrado],
                 ['Cache', maxplayer.cache]
             ] : [];
@@ -517,20 +584,34 @@ const VERSION = '3.4';
             const maxplayerFree = data.maxplayer_free || {};
             const user = (maxplayerFree.usuarios || [])[0] || {};
             const freeLine = (data.maxplayer_free_linhas?.linhas || [])[0] || {};
+            const userAccessMessage = buildAccessMessage({
+                usuario: user.usuario,
+                senha: user.senha,
+                telas: user.telas || 1,
+                telefone: user.usuario,
+                vencimento: user.vencimento
+            });
+            const lineAccessMessage = buildAccessMessage({
+                usuario: freeLine.usuario,
+                senha: freeLine.senha,
+                telas: freeLine.telas || 1,
+                telefone: freeLine.usuario,
+                vencimento: freeLine.vencimento
+            });
             const rows = maxplayerFree.status === 'sucesso' ? [
-                ['Usuario', user.usuario],
+                ['Usuario', user.usuario, 'access', userAccessMessage],
                 ['ID', user.id],
                 ['Line ID', user.line_id],
-                ['Senha', user.senha],
+                ['Senha', user.senha, 'access', userAccessMessage],
                 ['Vencimento', user.vencimento],
                 ['Dominio', user.dominio],
                 ['Tipo', formatTrialValue(user.e_teste)],
                 ['Encontrados', maxplayerFree.total_encontrado],
                 ['Cache', maxplayerFree.cache]
             ] : freeLine.id ? [
-                ['Linha encontrada', freeLine.usuario],
+                ['Linha encontrada', freeLine.usuario, 'access', lineAccessMessage],
                 ['Line ID', freeLine.id],
-                ['Senha linha', freeLine.senha],
+                ['Senha linha', freeLine.senha, 'access', lineAccessMessage],
                 ['Vencimento', freeLine.vencimento],
                 ['Tipo', formatTrialValue(freeLine.e_teste)]
             ] : [];
@@ -800,10 +881,10 @@ const VERSION = '3.4';
         });
 
         document.addEventListener('click', (event) => {
-            const copyButton = event.target.closest('button[data-copy-link]');
+            const copyButton = event.target.closest('button[data-copy-value]');
             if (copyButton) {
-                const link = copyButton.dataset.copyLink;
-                copyText(link).then(() => {
+                const value = copyButton.dataset.copyValue;
+                copyText(value).then(() => {
                     const original = copyButton.innerHTML;
                     copyButton.innerHTML = checkIcon();
                     copyButton.classList.add('copied');
@@ -812,7 +893,7 @@ const VERSION = '3.4';
                         copyButton.classList.remove('copied');
                     }, 1400);
                 }).catch(() => {
-                    alert('Nao foi possivel copiar automaticamente. Link: ' + link);
+                    alert('Nao foi possivel copiar automaticamente. Valor: ' + value);
                 });
                 return;
             }

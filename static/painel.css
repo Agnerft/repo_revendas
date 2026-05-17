@@ -738,9 +738,23 @@
             flex-wrap: wrap;
         }
 
+        .copy-value {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .copy-value span {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
         .copy-link {
             display: inline-grid;
             place-items: center;
+            flex: 0 0 auto;
             width: 34px;
             min-height: 32px;
             padding: 0;

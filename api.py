@@ -813,6 +813,7 @@ def consultar_linha_externa(request: SearchRequest):
                     # Converte timestamps para datas legÃ­veis
                     from datetime import datetime
                     exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
+                    exp_date_full = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y as %H:%M') if linha.get('exp_date') else 'N/A'
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
@@ -821,6 +822,8 @@ def consultar_linha_externa(request: SearchRequest):
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
+                        "vencimento_completo": exp_date_full,
+                        "telas": linha.get('max_connections') or linha.get('connections') or 1,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
                         "e_teste": "Sim" if linha.get('is_trial') else "Nao",
@@ -897,6 +900,7 @@ def consultar_linha_externa_get(telefone: str):
                     # Converte timestamps para datas legÃ­veis
                     from datetime import datetime
                     exp_date = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y') if linha.get('exp_date') else 'N/A'
+                    exp_date_full = datetime.fromtimestamp(linha.get('exp_date', 0)).strftime('%d/%m/%Y as %H:%M') if linha.get('exp_date') else 'N/A'
                     created_at = datetime.fromtimestamp(linha.get('created_at', 0)).strftime('%d/%m/%Y') if linha.get('created_at') else 'N/A'
                     
                     resultado_formatado = {
@@ -905,6 +909,8 @@ def consultar_linha_externa_get(telefone: str):
                         "usuario": linha.get('username', 'N/A'),
                         "senha": linha.get('password', 'N/A'),
                         "vencimento": exp_date,
+                        "vencimento_completo": exp_date_full,
+                        "telas": linha.get('max_connections') or linha.get('connections') or 1,
                         "dias_restantes": linha.get('countdown_exp_days', 'N/A'),
                         "status_conta": "Ativa" if linha.get('is_enabled') else "Desativada",
                         "e_teste": "Sim" if linha.get('is_trial') else "Nao",
@@ -1252,6 +1258,8 @@ def format_maxplayer_user(user):
         "id": user.get("id"),
         "usuario": user.get("username"),
         "email": user.get("email"),
+        "vencimento": user.get("exp_date"),
+        "telas": user.get("max_connections") or user.get("connections") or 1,
         "listas": lists
     }
 
@@ -1315,6 +1323,7 @@ def format_apps_line(line):
         "usuario": line.get("username"),
         "senha": line.get("password"),
         "vencimento": line.get("exp_date"),
+        "telas": line.get("max_connections") or line.get("connections") or 1,
         "e_teste": "Sim" if line.get("is_trial") else "Nao"
     }
 
@@ -1327,6 +1336,7 @@ def format_maxplayer_free_user(user, domain_map=None):
         "usuario": user.get("username"),
         "senha": user.get("password"),
         "vencimento": user.get("exp_date"),
+        "telas": user.get("max_connections") or user.get("connections") or 1,
         "dominio_id": domain_id,
         "dominio": domain_map.get(domain_id, domain_id),
         "e_teste": "Sim" if user.get("is_trial") else "Nao"
