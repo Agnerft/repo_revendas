@@ -66,6 +66,7 @@ update_process = None
 UPDATE_LOG_FILE = os.path.join(BASE_DIR, "update_all_revendas.log")
 GESTOR_LOGIN_PAGE_URL = "https://app.gestorinove.com.br/login"
 GESTOR_LOGIN_URL = "https://app.gestorinove.com.br/valida"
+BOTCONVERSA_WEBHOOK_URL = os.getenv("BOTCONVERSA_WEBHOOK_URL", "")
 security = HTTPBasic(auto_error=False)
 
 if os.path.isdir(STATIC_DIR):
@@ -180,6 +181,10 @@ class MaxplayerEditListRequest(BaseModel):
 class MaxplayerFreeCreateRequest(BaseModel):
     line_id: int
     domain_id: str
+
+class BotConversaWebhookRequest(BaseModel):
+    mensagem: str
+    dados: Optional[dict] = None
 
 def testar_login_gestor(email, password):
     session = requests.Session()
@@ -320,7 +325,8 @@ def config_status(_authenticated: bool = Depends(require_panel_auth)):
             "painel_best": bool(API_KEY_EXTERNA),
             "maxplayer_public": bool(MAXPLAYER_API_TOKEN),
             "maxplayer_panel": bool(MAXPLAYER_PANEL_TOKEN),
-            "painel_apps": bool(PAINEL_APPS_USERNAME and PAINEL_APPS_PASSWORD)
+            "painel_apps": bool(PAINEL_APPS_USERNAME and PAINEL_APPS_PASSWORD),
+            "botconversa_webhook": bool(BOTCONVERSA_WEBHOOK_URL)
         },
         "maxplayer": {
             "group": panel.get("group"),
@@ -349,6 +355,33 @@ def historico_acoes(limit: int = 50, _authenticated: bool = Depends(require_pane
     return {
         "total": len(history),
         "acoes": history[-max(1, min(limit, 200)):]
+    }
+
+@app.post("/botconversa/enviar")
+def enviar_botconversa(request: BotConversaWebhookRequest, _authenticated: bool = Depends(require_panel_auth)):
+    webhook_url = require_setting(BOTCONVERSA_WEBHOOK_URL, "BOTCONVERSA_WEBHOOK_URL")
+    payload = {
+        "mensagem": request.mensagem,
+        "message": request.mensagem,
+        **(request.dados or {})
+    }
+
+    try:
+        response = requests.post(webhook_url, json=payload, timeout=20)
+    except requests.exceptions.RequestException as e:
+        log_action("botconversa_webhook", "erro", {"error": str(e), "payload": payload})
+        raise HTTPException(status_code=503, detail=f"Erro ao enviar webhook BotConversa: {e}")
+
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        log_action("botconversa_webhook", "erro", {"http_code": response.status_code, "response": detail, "payload": payload})
+        raise HTTPException(status_code=response.status_code, detail=f"BotConversa retornou HTTP {response.status_code}: {detail}")
+
+    log_action("botconversa_webhook", "sucesso", {"http_code": response.status_code, "payload": payload})
+    return {
+        "status": "sucesso",
+        "message": "Webhook enviado para o BotConversa.",
+        "http_code": response.status_code
     }
 
 @app.get("/painel", response_class=HTMLResponse)

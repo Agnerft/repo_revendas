@@ -806,6 +806,23 @@
             background: #16a34a;
         }
 
+        .botconversa-btn {
+            width: 100%;
+            justify-content: center;
+            min-height: 42px;
+            margin-top: 10px;
+            color: #1d4ed8;
+            border-color: #bfdbfe;
+            background: #dbeafe;
+        }
+
+        .botconversa-btn:hover,
+        .botconversa-btn.sent {
+            color: #fff;
+            border-color: #2563eb;
+            background: #2563eb;
+        }
+
         .copy-action-btn {
             width: 100%;
             justify-content: center;

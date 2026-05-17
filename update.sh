@@ -59,6 +59,11 @@ if command -v docker >/dev/null 2>&1; then
   else
     docker-compose up -d --build
   fi
+
+  echo "Limpando cache antigo do Docker..."
+  docker builder prune -af >/dev/null 2>&1 || true
+  docker image prune -af >/dev/null 2>&1 || true
+  docker container prune -f >/dev/null 2>&1 || true
 fi
 
 echo "OK"

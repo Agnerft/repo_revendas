@@ -1,4 +1,4 @@
-const VERSION = '3.13';
+const VERSION = '3.14';
         const endpoints = [
             {
                 method: 'GET',
@@ -321,6 +321,37 @@ const VERSION = '3.13';
             ].join('\n');
         }
 
+        function buildBotConversaPayload(data) {
+            const detalhe = data.linha?.linha || {};
+            const revenda = data.revenda || {};
+            const mensagem = buildAccessMessage({
+                usuario: detalhe.usuario,
+                senha: detalhe.senha,
+                telas: detalhe.telas || 1,
+                telefone: detalhe.telefone || data.telefone_normalizado || detalhe.usuario,
+                vencimento: detalhe.vencimento_completo || detalhe.vencimento
+            });
+
+            return {
+                mensagem,
+                dados: {
+                    termo: data.termo_buscado || '',
+                    cliente: revenda.nome || detalhe.usuario || '',
+                    telefone: detalhe.telefone || revenda.telefone || data.telefone_normalizado || '',
+                    usuario: detalhe.usuario || '',
+                    senha: detalhe.senha || '',
+                    telas: detalhe.telas || 1,
+                    vencimento: detalhe.vencimento || '',
+                    vencimento_completo: detalhe.vencimento_completo || '',
+                    status_the_best: detalhe.status_interno || detalhe.status_conta || '',
+                    revenda_the_best: detalhe.revenda || '',
+                    link_pagamento: revenda.Link || '',
+                    m3u: detalhe.url_m3u || '',
+                    m3u_plus: detalhe.url_m3u_plus || ''
+                }
+            };
+        }
+
         function renderDataValue(row) {
             const value = emptyValue(row[1]);
             if (row[2] === 'copy-button' && row[1] && row[1] !== 'N/A') {
@@ -366,6 +397,13 @@ const VERSION = '3.13';
             return `
                 <button class="btn secondary select-data-btn" type="button" data-copy-value="${escapeHtml(message)}">
                     Selecionar dados
+                </button>`;
+        }
+
+        function botConversaButton() {
+            return `
+                <button class="btn secondary botconversa-btn" type="button" data-send-botconversa>
+                    Enviar BotConversa
                 </button>`;
         }
 
@@ -642,6 +680,7 @@ const VERSION = '3.13';
 
             if (linha.status === 'sucesso') {
                 document.getElementById('lineResult').insertAdjacentHTML('beforeend', accessSelectButton(accessMessage));
+                document.getElementById('lineResult').insertAdjacentHTML('beforeend', botConversaButton());
             }
         }
 
@@ -1052,6 +1091,39 @@ const VERSION = '3.13';
                     }, 1400);
                 }).catch(() => {
                     alert('Nao foi possivel copiar automaticamente. Valor: ' + value);
+                });
+                return;
+            }
+
+            const botConversaButton = event.target.closest('button[data-send-botconversa]');
+            if (botConversaButton) {
+                if (!lastUnifiedData || lastUnifiedData.linha?.status !== 'sucesso') {
+                    alert('Consulte um cliente com dados do The Best antes de enviar.');
+                    return;
+                }
+                if (!confirm('Enviar usuario, senha, vencimento e links deste cliente para o BotConversa?')) {
+                    return;
+                }
+
+                const original = botConversaButton.textContent;
+                botConversaButton.disabled = true;
+                botConversaButton.textContent = 'Enviando...';
+                requestJson('/botconversa/enviar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildBotConversaPayload(lastUnifiedData))
+                }).then(() => {
+                    botConversaButton.classList.add('sent');
+                    botConversaButton.textContent = 'Enviado';
+                    window.setTimeout(() => {
+                        botConversaButton.classList.remove('sent');
+                        botConversaButton.textContent = original;
+                    }, 1600);
+                }).catch((error) => {
+                    alert(error.message);
+                    botConversaButton.textContent = original;
+                }).finally(() => {
+                    botConversaButton.disabled = false;
                 });
                 return;
             }
