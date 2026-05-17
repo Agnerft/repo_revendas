@@ -1,4 +1,4 @@
-const VERSION = '3.7';
+const VERSION = '3.9';
         const endpoints = [
             {
                 method: 'GET',
@@ -294,6 +294,21 @@ const VERSION = '3.7';
             return text;
         }
 
+        function formatDisplayDate(value) {
+            const text = emptyValue(value);
+            if (text === 'N/A') return text;
+
+            if (/^\d{10}$/.test(text)) {
+                return new Date(Number(text) * 1000).toLocaleDateString('pt-BR');
+            }
+
+            if (/^\d{13}$/.test(text)) {
+                return new Date(Number(text)).toLocaleDateString('pt-BR');
+            }
+
+            return text;
+        }
+
         function buildAccessMessage(data) {
             return [
                 'AQUI ESTÃO SEUS DADOS DE ACESSO 📺',
@@ -498,7 +513,7 @@ const VERSION = '3.7';
                 ['Telefone', revenda.telefone],
                 ['Revenda', revenda.Revenda],
                 ['Plano', revenda.plano],
-                ['Vencimento', revenda.data_expiracao],
+                ['Vencimento', formatDisplayDate(revenda.data_expiracao)],
                 ['ID cliente', revenda.Id_client],
                 ['DT Row', revenda.DT_RowId],
                 ['Pagamento', revenda.Link, 'link']
@@ -525,14 +540,20 @@ const VERSION = '3.7';
                 vencimento: detalhe.vencimento_completo || detalhe.vencimento
             });
             const rows = linha.status === 'sucesso' ? [
+                ['ID linha', detalhe.id],
                 ['Telefone', detalhe.telefone],
                 ['Usuario', detalhe.usuario],
                 ['Senha', detalhe.senha],
                 ['Vencimento', detalhe.vencimento],
                 ['Dias restantes', detalhe.dias_restantes],
                 ['Status', detalhe.status_conta],
+                ['Status interno', detalhe.status_interno],
                 ['Tipo', formatTrialValue(detalhe.e_teste)],
-                ['Revenda', detalhe.revenda]
+                ['DNS', detalhe.dns],
+                ['Revenda', detalhe.revenda],
+                ['Criado em', detalhe.criado_em],
+                ['Atualizado em', detalhe.atualizado_em],
+                ['M3U', detalhe.url_m3u, 'link']
             ] : [];
 
             renderResultCard(

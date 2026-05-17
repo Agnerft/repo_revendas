@@ -829,6 +829,43 @@ def reload_data():
 API_KEY_EXTERNA = os.getenv("PAINEL_BEST_API_KEY", "")
 API_BASE_URL = os.getenv("PAINEL_BEST_BASE_URL", "https://api.painel.best/lines/")
 
+def format_timestamp_date(value, with_time=False):
+    if not value:
+        return "N/A"
+
+    try:
+        fmt = "%d/%m/%Y as %H:%M" if with_time else "%d/%m/%Y"
+        return datetime.fromtimestamp(int(value)).strftime(fmt)
+    except (TypeError, ValueError, OSError):
+        return "N/A"
+
+def format_linha_externa(linha):
+    return {
+        "status": "ENCONTRADO",
+        "id": linha.get("id", "N/A"),
+        "telefone": linha.get("phone", "N/A"),
+        "usuario": linha.get("username", "N/A"),
+        "senha": linha.get("password", "N/A"),
+        "vencimento": format_timestamp_date(linha.get("exp_date")),
+        "vencimento_completo": format_timestamp_date(linha.get("exp_date"), with_time=True),
+        "telas": linha.get("max_connections") or linha.get("connections") or 1,
+        "dias_restantes": linha.get("countdown_exp_days", "N/A"),
+        "status_conta": "Ativa" if linha.get("is_enabled") else "Desativada",
+        "status_interno": linha.get("status", "N/A"),
+        "e_teste": "Sim" if linha.get("is_trial") else "Nao",
+        "criado_em": format_timestamp_date(linha.get("created_at")),
+        "atualizado_em": format_timestamp_date(linha.get("updated_at"), with_time=True),
+        "dns": linha.get("dns", "N/A"),
+        "url_m3u": linha.get("url_m3u", "N/A"),
+        "email": linha.get("email", "N/A"),
+        "valor_plano": linha.get("plan_value", "N/A"),
+        "tipo": linha.get("type", "N/A"),
+        "bouquet_ids": linha.get("bouquet_ids") or [],
+        "notas": linha.get("notes", ""),
+        "revenda": linha.get("user_username", "N/A"),
+        "revenda_id": linha.get("user_id", "N/A")
+    }
+
 @app.post("/consultar-linha")
 def consultar_linha_externa(request: SearchRequest):
     """
@@ -885,6 +922,7 @@ def consultar_linha_externa(request: SearchRequest):
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
                     }
+                    resultado_formatado = format_linha_externa(linha)
                     
                     return {
                         "status": "sucesso",
@@ -972,6 +1010,7 @@ def consultar_linha_externa_get(telefone: str):
                         "notas": linha.get('notes', ''),
                         "revenda": linha.get('user_username', 'N/A')
                     }
+                    resultado_formatado = format_linha_externa(linha)
                     
                     return {
                         "status": "sucesso",
