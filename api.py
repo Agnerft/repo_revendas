@@ -15,6 +15,7 @@ import threading
 import time
 import secrets
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -51,6 +52,8 @@ PANEL_USERNAME = os.getenv("PANEL_USERNAME", "")
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "")
 PANEL_PASSWORD_ENABLED = bool(PANEL_PASSWORD)
 df = None
+df_search_text = None
+df_phone_digits = None
 update_lock = threading.Lock()
 update_status = {
     "running": False,
@@ -210,7 +213,7 @@ def testar_login_gestor(email, password):
         session.close()
 
 def load_data():
-    global df
+    global df, df_search_text, df_phone_digits
     if os.path.exists(EXCEL_FILE):
         try:
             print(f"Carregando {EXCEL_FILE}...")
@@ -218,14 +221,23 @@ def load_data():
             df = pd.read_excel(EXCEL_FILE, dtype=str)
             # Preenche NaN com string vazia
             df = df.fillna("")
+            df_search_text = df.astype(str).agg(" ".join, axis=1).str.lower()
+            if "telefone" in df.columns:
+                df_phone_digits = df["telefone"].astype(str).str.replace(r"[^\d]", "", regex=True)
+            else:
+                df_phone_digits = df.astype(str).agg(" ".join, axis=1).str.replace(r"[^\d]", "", regex=True)
             print(f"Colunas carregadas: {df.columns.tolist()}")
             print(f"Dados carregados: {len(df)} registros.")
         except Exception as e:
             print(f"Erro ao carregar Excel: {e}")
             df = pd.DataFrame()
+            df_search_text = pd.Series(dtype=str)
+            df_phone_digits = pd.Series(dtype=str)
     else:
         print(f"Arquivo {EXCEL_FILE} nÃ£o encontrado.")
         df = pd.DataFrame()
+        df_search_text = pd.Series(dtype=str)
+        df_phone_digits = pd.Series(dtype=str)
 
 # Carrega os dados na inicializaÃ§Ã£o
 def start_update_process():
@@ -390,6 +402,48 @@ def read_root_post(request: SearchRequest):
     """
     return buscar_cliente(request)
 
+def build_client_search_mask(termo):
+    termo = str(termo or "").lower().strip()
+    if not termo:
+        return pd.Series(False, index=df.index)
+
+    source = df_search_text
+    if source is None or len(source) != len(df):
+        source = df.astype(str).agg(" ".join, axis=1).str.lower()
+
+    candidates = [termo]
+    if "+" in termo:
+        candidates.append(termo.replace("+", ""))
+    elif termo.isdigit():
+        candidates.append("+" + termo)
+
+    if "55" in termo:
+        termo_sem_ddi = termo.replace("+55", "").replace("55", "", 1)
+        if len(termo_sem_ddi) > 4:
+            candidates.append(termo_sem_ddi)
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        mask = source.str.contains(candidate, regex=False, na=False)
+        if mask.any():
+            return mask
+
+    digits_busca = re.sub(r"[^\d]", "", termo)
+    if len(digits_busca) >= 8:
+        sufixo = digits_busca[-8:]
+        digits_source = df_phone_digits
+        if digits_source is None or len(digits_source) != len(df):
+            if "telefone" in df.columns:
+                digits_source = df["telefone"].astype(str).str.replace(r"[^\d]", "", regex=True)
+            else:
+                digits_source = df.astype(str).agg(" ".join, axis=1).str.replace(r"[^\d]", "", regex=True)
+        return digits_source.str.contains(sufixo, regex=False, na=False)
+
+    return pd.Series(False, index=df.index)
+
 @app.post("/buscar")
 def buscar_cliente(request: SearchRequest):
     """
@@ -435,21 +489,21 @@ def buscar_cliente(request: SearchRequest):
     # Se o termo tem +, vamos tentar buscar exatamente como veio primeiro
     # Se nÃ£o encontrar, tentamos sem o +
     
-    mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo, regex=False, na=False)).any(axis=1)
+    mask = build_client_search_mask(termo)
     
     # Se nÃ£o achou e tem +, tenta sem o +
-    if not mask.any() and "+" in termo:
+    if False and not mask.any() and "+" in termo:
         termo_sem_plus = termo.replace("+", "")
         mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo_sem_plus, regex=False, na=False)).any(axis=1)
     
     # Se nÃ£o achou e NÃƒO tem +, tenta COM o + (caso o usuÃ¡rio mande sem e no banco tenha)
-    if not mask.any() and "+" not in termo and termo.isdigit():
+    if False and not mask.any() and "+" not in termo and termo.isdigit():
          termo_com_plus = "+" + termo
          mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo_com_plus, regex=False, na=False)).any(axis=1)
          
     # Se ainda nÃ£o achou, e o termo comeÃ§a com 55 (DDI Brasil), tenta sem o 55
     # Ex: Busca +5551... mas no banco estÃ¡ +51...
-    if not mask.any() and "55" in termo:
+    if False and not mask.any() and "55" in termo:
         # Tenta remover +55 ou apenas 55 do inÃ­cio
         termo_sem_ddi = termo.replace("+55", "").replace("55", "", 1)
         # Se ficou vazio ou muito curto, ignora
@@ -460,7 +514,7 @@ def buscar_cliente(request: SearchRequest):
     # Se ainda nÃ£o encontrou, vamos comparar apenas os DÃGITOS.
     # Se o usuÃ¡rio mandou um nÃºmero com pelo menos 8 dÃ­gitos,
     # verificamos se esses dÃ­gitos finais existem em algum telefone do banco.
-    if not mask.any():
+    if False and not mask.any():
         import re
         # Extrai apenas dÃ­gitos da busca
         digits_busca = re.sub(r'[^\d]', '', termo)
@@ -756,7 +810,7 @@ def filtrar_clientes(request: SearchRequest):
     termo = q.lower().strip()
     
     # Busca exata ou parcial (neste caso, parcial funciona bem para datas)
-    mask = df.apply(lambda x: x.astype(str).str.lower().str.contains(termo, regex=False, na=False)).any(axis=1)
+    mask = build_client_search_mask(termo)
     
     resultados = df[mask]
     
@@ -1573,6 +1627,102 @@ def criar_usuario_maxplayer_free(request: MaxplayerFreeCreateRequest):
         "result": result
     }
 
+def consulta_revenda_result(termo):
+    try:
+        revenda = buscar_cliente(SearchRequest(termo=termo))
+        if isinstance(revenda, dict) and revenda.get("DT_RowId") != "nao_encontrado":
+            return {
+                **revenda,
+                "status": "sucesso",
+                "mensagem": "Cadastro encontrado na base das revendas."
+            }
+
+        return {
+            **(revenda if isinstance(revenda, dict) else {}),
+            "status": "nao_encontrado",
+            "mensagem": "Nenhum cadastro encontrado na base das revendas."
+        }
+    except HTTPException as e:
+        return {
+            "status": "erro",
+            "mensagem": e.detail,
+            "Link": "nao_encontrado"
+        }
+    except Exception as e:
+        return {
+            "status": "erro",
+            "mensagem": str(e),
+            "Link": "nao_encontrado"
+        }
+
+def consulta_linha_result(telefone_limpo):
+    if not telefone_limpo:
+        return {
+            "status": "ignorado",
+            "mensagem": "A consulta de linhas precisa de um telefone numerico."
+        }
+
+    try:
+        return consultar_linha_externa_get(telefone_limpo)
+    except HTTPException as e:
+        return {
+            "status": "erro",
+            "mensagem": e.detail
+        }
+    except Exception as e:
+        return {
+            "status": "erro",
+            "mensagem": str(e)
+        }
+
+def consulta_maxplayer_result(termo):
+    try:
+        return pesquisar_usuario_maxplayer(SearchRequest(termo=termo))
+    except HTTPException as e:
+        return {
+            "status": "erro",
+            "mensagem": e.detail,
+            "usuarios": []
+        }
+    except Exception as e:
+        return {
+            "status": "erro",
+            "mensagem": str(e),
+            "usuarios": []
+        }
+
+def consulta_maxplayer_free_result(termo):
+    try:
+        return pesquisar_usuario_maxplayer_free(SearchRequest(termo=termo))
+    except HTTPException as e:
+        return {
+            "status": "erro",
+            "mensagem": e.detail,
+            "usuarios": []
+        }
+    except Exception as e:
+        return {
+            "status": "erro",
+            "mensagem": str(e),
+            "usuarios": []
+        }
+
+def consulta_maxplayer_free_linhas_result(termo):
+    try:
+        return pesquisar_linha_maxplayer_free(SearchRequest(termo=termo))
+    except HTTPException as e:
+        return {
+            "status": "erro",
+            "mensagem": e.detail,
+            "linhas": []
+        }
+    except Exception as e:
+        return {
+            "status": "erro",
+            "mensagem": str(e),
+            "linhas": []
+        }
+
 @app.post("/cliente/consulta")
 def consulta_cliente_unificada(request: SearchRequest):
     termo = request.termo.strip()
@@ -1581,96 +1731,28 @@ def consulta_cliente_unificada(request: SearchRequest):
 
     telefone_limpo = re.sub(r"[^\d]", "", termo)
 
-    try:
-        revenda = buscar_cliente(SearchRequest(termo=termo))
-        if isinstance(revenda, dict) and revenda.get("DT_RowId") != "nao_encontrado":
-            revenda = {
-                **revenda,
-                "status": "sucesso",
-                "mensagem": "Cadastro encontrado na base das revendas."
-            }
-        else:
-            revenda = {
-                **(revenda if isinstance(revenda, dict) else {}),
-                "status": "nao_encontrado",
-                "mensagem": "Nenhum cadastro encontrado na base das revendas."
-            }
-    except HTTPException as e:
-        revenda = {
-            "status": "erro",
-            "mensagem": e.detail,
-            "Link": "nao_encontrado"
-        }
-    except Exception as e:
-        revenda = {
-            "status": "erro",
-            "mensagem": str(e),
-            "Link": "nao_encontrado"
-        }
+    tasks = {
+        "revenda": (consulta_revenda_result, termo),
+        "linha": (consulta_linha_result, telefone_limpo),
+        "maxplayer": (consulta_maxplayer_result, termo),
+        "maxplayer_free": (consulta_maxplayer_free_result, termo),
+        "maxplayer_free_linhas": (consulta_maxplayer_free_linhas_result, termo)
+    }
+    results = {}
 
-    if telefone_limpo:
-        try:
-            linha = consultar_linha_externa_get(telefone_limpo)
-        except HTTPException as e:
-            linha = {
-                "status": "erro",
-                "mensagem": e.detail
-            }
-        except Exception as e:
-            linha = {
-                "status": "erro",
-                "mensagem": str(e)
-            }
-    else:
-        linha = {
-            "status": "ignorado",
-            "mensagem": "A consulta de linhas precisa de um telefone numerico."
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        futures = {
+            executor.submit(func, arg): name
+            for name, (func, arg) in tasks.items()
         }
+        for future in as_completed(futures):
+            results[futures[future]] = future.result()
 
-    try:
-        maxplayer = pesquisar_usuario_maxplayer(SearchRequest(termo=termo))
-    except HTTPException as e:
-        maxplayer = {
-            "status": "erro",
-            "mensagem": e.detail,
-            "usuarios": []
-        }
-    except Exception as e:
-        maxplayer = {
-            "status": "erro",
-            "mensagem": str(e),
-            "usuarios": []
-        }
-
-    try:
-        maxplayer_free = pesquisar_usuario_maxplayer_free(SearchRequest(termo=termo))
-    except HTTPException as e:
-        maxplayer_free = {
-            "status": "erro",
-            "mensagem": e.detail,
-            "usuarios": []
-        }
-    except Exception as e:
-        maxplayer_free = {
-            "status": "erro",
-            "mensagem": str(e),
-            "usuarios": []
-        }
-
-    try:
-        maxplayer_free_linhas = pesquisar_linha_maxplayer_free(SearchRequest(termo=termo))
-    except HTTPException as e:
-        maxplayer_free_linhas = {
-            "status": "erro",
-            "mensagem": e.detail,
-            "linhas": []
-        }
-    except Exception as e:
-        maxplayer_free_linhas = {
-            "status": "erro",
-            "mensagem": str(e),
-            "linhas": []
-        }
+    revenda = results["revenda"]
+    linha = results["linha"]
+    maxplayer = results["maxplayer"]
+    maxplayer_free = results["maxplayer_free"]
+    maxplayer_free_linhas = results["maxplayer_free_linhas"]
 
     linha_encontrada = linha.get("status") == "sucesso"
     maxplayer_encontrado = maxplayer.get("status") == "sucesso"
