@@ -1,4 +1,4 @@
-const VERSION = '3.15';
+const VERSION = '3.16';
         const endpoints = [
             {
                 method: 'GET',
@@ -427,6 +427,14 @@ const VERSION = '3.15';
         function buildBotConversaPayload(data, mensagem, tipo) {
             const detalhe = data.linha?.linha || {};
             const revenda = data.revenda || {};
+            const maxplayer = data.maxplayer || {};
+            const maxUser = (maxplayer.usuarios || [])[0] || {};
+            const maxList = (maxUser.listas || [])[0] || {};
+            const maxIptv = maxList.iptv || {};
+            const maxplayerFree = data.maxplayer_free || {};
+            const freeUser = (maxplayerFree.usuarios || [])[0] || {};
+            const freeLine = (data.maxplayer_free_linhas?.linhas || [])[0] || {};
+            const freeSource = freeUser.usuario ? freeUser : freeLine;
 
             return {
                 mensagem,
@@ -444,7 +452,16 @@ const VERSION = '3.15';
                     revenda_the_best: detalhe.revenda || '',
                     link_pagamento: revenda.Link || '',
                     m3u: detalhe.url_m3u || '',
-                    m3u_plus: detalhe.url_m3u_plus || ''
+                    m3u_plus: detalhe.url_m3u_plus || '',
+                    max_usuario: maxIptv.usuario || maxUser.usuario || '',
+                    max_senha: maxIptv.senha || '',
+                    max_dominio: maxIptv.fqdn || '',
+                    max_porta: maxIptv.porta || '',
+                    max_lista: maxList.nome || '',
+                    max_free_usuario: freeSource.usuario || '',
+                    max_free_senha: freeSource.senha || '',
+                    max_free_dominio: freeSource.dominio || '',
+                    max_free_vencimento: freeSource.vencimento || ''
                 }
             };
         }
@@ -498,9 +515,15 @@ const VERSION = '3.15';
         }
 
         function sendClientButton(type) {
+            const labels = {
+                payment: 'Enviar pagamento',
+                'the-best': 'Enviar The Best',
+                maxplayer: 'Enviar Max Pago',
+                'maxplayer-free': 'Enviar Max Free'
+            };
             return `
                 <button class="btn secondary send-client-btn" type="button" data-open-message-modal="${escapeHtml(type)}">
-                    Enviar para cliente
+                    ${escapeHtml(labels[type] || 'Enviar para cliente')}
                 </button>`;
         }
 
