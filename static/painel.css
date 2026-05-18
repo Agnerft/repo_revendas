@@ -806,7 +806,7 @@
             background: #16a34a;
         }
 
-        .botconversa-btn {
+        .send-client-btn {
             width: 100%;
             justify-content: center;
             min-height: 42px;
@@ -816,8 +816,7 @@
             background: #dbeafe;
         }
 
-        .botconversa-btn:hover,
-        .botconversa-btn.sent {
+        .send-client-btn:hover {
             color: #fff;
             border-color: #2563eb;
             background: #2563eb;
@@ -1021,6 +1020,82 @@
 
         body.theme-dark .data-value {
             color: #e5edf8;
+        }
+
+        .message-modal[hidden] {
+            display: none;
+        }
+
+        .message-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: grid;
+            place-items: center;
+            padding: 18px;
+        }
+
+        .message-modal-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, .68);
+        }
+
+        .message-dialog {
+            position: relative;
+            z-index: 1;
+            width: min(620px, 100%);
+            display: grid;
+            gap: 14px;
+            padding: 18px;
+            border: 1px solid #d7deea;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, .28);
+        }
+
+        .message-dialog-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .message-dialog-head h2 {
+            margin: 0;
+            color: #111827;
+            font-size: 18px;
+        }
+
+        .message-textarea {
+            width: 100%;
+            min-height: 260px;
+            resize: vertical;
+            padding: 12px;
+            border: 1px solid #cfd8e6;
+            border-radius: 8px;
+            color: #111827;
+            background: #fff;
+            line-height: 1.45;
+            box-sizing: border-box;
+        }
+
+        .message-dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        body.theme-dark .message-dialog,
+        body.theme-dark .message-textarea {
+            color: #e5edf8;
+            background: #0f172a;
+            border-color: #334155;
+        }
+
+        body.theme-dark .message-dialog-head h2 {
+            color: #f8fafc;
         }
 
         @media (min-width: 1500px) {

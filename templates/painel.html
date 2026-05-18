@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Painel de Revendas</title>
-    <link rel="stylesheet" href="/static/painel.css?v=20260516-3">
+    <link rel="stylesheet" href="/static/painel.css?v=20260517-1">
 </head>
 <body>
     <div class="shell">
@@ -110,6 +110,21 @@
         </main>
     </div>
 
-    <script src="/static/painel.js?v=20260517-7"></script>
+    <div class="message-modal" id="messageModal" hidden>
+        <div class="message-modal-backdrop" data-close-message-modal></div>
+        <section class="message-dialog" role="dialog" aria-modal="true" aria-labelledby="messageModalTitle">
+            <div class="message-dialog-head">
+                <h2 id="messageModalTitle">Enviar para cliente</h2>
+                <button class="copy-link" type="button" data-close-message-modal aria-label="Fechar">x</button>
+            </div>
+            <textarea id="messageText" class="message-textarea" spellcheck="true"></textarea>
+            <div class="message-dialog-actions">
+                <button class="btn" type="button" data-close-message-modal>Cancelar</button>
+                <button class="btn primary" type="button" id="sendMessageBtn">Enviar</button>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/painel.js?v=20260517-8"></script>
 </body>
 </html>

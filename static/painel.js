@@ -1,4 +1,4 @@
-const VERSION = '3.14';
+const VERSION = '3.15';
         const endpoints = [
             {
                 method: 'GET',
@@ -168,6 +168,7 @@ const VERSION = '3.14';
         let activeFilter = 'all';
         let updateTimer = null;
         let lastUnifiedData = null;
+        let pendingMessageType = '';
         let maxplayerDomains = [];
         let maxplayerFreeDomains = [];
 
@@ -321,20 +322,116 @@ const VERSION = '3.14';
             ].join('\n');
         }
 
-        function buildBotConversaPayload(data) {
+        function expirationLine(dateValue, daysValue) {
+            const days = Number(daysValue);
+            if (!Number.isNaN(days)) {
+                if (days <= 0) return 'Ja esta expirado.';
+                if (days === 1) return 'Falta 1 dia para expirar.';
+                return `Faltam ${days} dias para expirar.`;
+            }
+
+            const text = emptyValue(dateValue);
+            if (text === 'N/A') return '';
+            const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+            if (!match) return '';
+
+            const target = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+            const today = new Date();
+            target.setHours(0, 0, 0, 0);
+            today.setHours(0, 0, 0, 0);
+            const diff = Math.ceil((target - today) / 86400000);
+            if (diff <= 0) return 'Ja esta expirado.';
+            if (diff === 1) return 'Falta 1 dia para expirar.';
+            return `Faltam ${diff} dias para expirar.`;
+        }
+
+        function clientName(data) {
             const detalhe = data.linha?.linha || {};
             const revenda = data.revenda || {};
-            const mensagem = buildAccessMessage({
-                usuario: detalhe.usuario,
-                senha: detalhe.senha,
-                telas: detalhe.telas || 1,
-                telefone: detalhe.telefone || data.telefone_normalizado || detalhe.usuario,
-                vencimento: detalhe.vencimento_completo || detalhe.vencimento
-            });
+            return usefulValue(revenda.nome, detalhe.usuario, data.termo_buscado, 'cliente');
+        }
+
+        function paymentMessage(data) {
+            const revenda = data.revenda || {};
+            const detalhe = data.linha?.linha || {};
+            const vencimento = formatDisplayDate(revenda.data_expiracao);
+            return [
+                `Oi, ${clientName(data)}`,
+                '',
+                `Seu plano ${emptyValue(revenda.plano)}`,
+                `com vencimento ${emptyValue(vencimento)}`,
+                expirationLine(vencimento),
+                '',
+                'Caso queira efetuar o pagamento, esse e o link:',
+                emptyValue(revenda.Link)
+            ].filter((line) => line !== '').join('\n');
+        }
+
+        function theBestMessage(data) {
+            const detalhe = data.linha?.linha || {};
+            return [
+                `Oi, ${clientName(data)}`,
+                '',
+                'Seguem seus dados de acesso:',
+                `Usuario: ${emptyValue(detalhe.usuario)}`,
+                `Senha: ${emptyValue(detalhe.senha)}`,
+                `Telas: ${emptyValue(detalhe.telas || 1)}`,
+                `Vencimento: ${emptyValue(detalhe.vencimento)}`,
+                expirationLine(detalhe.vencimento, detalhe.dias_restantes)
+            ].filter((line) => line !== '').join('\n');
+        }
+
+        function maxplayerMessage(data) {
+            const maxplayer = data.maxplayer || {};
+            const user = (maxplayer.usuarios || [])[0] || {};
+            const list = (user.listas || [])[0] || {};
+            const iptv = list.iptv || {};
+            const vencimento = user.vencimento || list.vencimento || data.linha?.linha?.vencimento || '';
+            return [
+                `Oi, ${clientName(data)}`,
+                '',
+                'Seguem seus dados do MaxPlayer:',
+                `Usuario: ${emptyValue(iptv.usuario || user.usuario)}`,
+                `Senha: ${emptyValue(iptv.senha)}`,
+                `Dominio: ${emptyValue(iptv.fqdn)}`,
+                `Porta: ${emptyValue(iptv.porta)}`,
+                `Vencimento: ${emptyValue(vencimento)}`,
+                expirationLine(vencimento, data.linha?.linha?.dias_restantes)
+            ].filter((line) => line !== '').join('\n');
+        }
+
+        function maxplayerFreeMessage(data) {
+            const maxplayerFree = data.maxplayer_free || {};
+            const user = (maxplayerFree.usuarios || [])[0] || {};
+            const freeLine = (data.maxplayer_free_linhas?.linhas || [])[0] || {};
+            const source = user.usuario ? user : freeLine;
+            return [
+                `Oi, ${clientName(data)}`,
+                '',
+                'Seguem seus dados do MaxPlayer Free:',
+                `Usuario: ${emptyValue(source.usuario)}`,
+                `Senha: ${emptyValue(source.senha)}`,
+                `Dominio: ${emptyValue(source.dominio)}`,
+                `Vencimento: ${emptyValue(source.vencimento)}`,
+                expirationLine(source.vencimento)
+            ].filter((line) => line !== '').join('\n');
+        }
+
+        function buildClientMessage(type, data) {
+            if (type === 'payment') return paymentMessage(data);
+            if (type === 'maxplayer') return maxplayerMessage(data);
+            if (type === 'maxplayer-free') return maxplayerFreeMessage(data);
+            return theBestMessage(data);
+        }
+
+        function buildBotConversaPayload(data, mensagem, tipo) {
+            const detalhe = data.linha?.linha || {};
+            const revenda = data.revenda || {};
 
             return {
                 mensagem,
                 dados: {
+                    tipo_mensagem: tipo || '',
                     termo: data.termo_buscado || '',
                     cliente: revenda.nome || detalhe.usuario || '',
                     telefone: detalhe.telefone || revenda.telefone || data.telefone_normalizado || '',
@@ -400,10 +497,10 @@ const VERSION = '3.14';
                 </button>`;
         }
 
-        function botConversaButton() {
+        function sendClientButton(type) {
             return `
-                <button class="btn secondary botconversa-btn" type="button" data-send-botconversa>
-                    Enviar BotConversa
+                <button class="btn secondary send-client-btn" type="button" data-open-message-modal="${escapeHtml(type)}">
+                    Enviar para cliente
                 </button>`;
         }
 
@@ -639,6 +736,10 @@ const VERSION = '3.14';
                 revenda.mensagem || 'Nenhum cadastro encontrado na base das revendas.',
                 revenda
             );
+
+            if (revenda.status === 'sucesso') {
+                document.getElementById('resellerResult').insertAdjacentHTML('beforeend', sendClientButton('payment'));
+            }
         }
 
         function renderLineResult(data) {
@@ -680,7 +781,7 @@ const VERSION = '3.14';
 
             if (linha.status === 'sucesso') {
                 document.getElementById('lineResult').insertAdjacentHTML('beforeend', accessSelectButton(accessMessage));
-                document.getElementById('lineResult').insertAdjacentHTML('beforeend', botConversaButton());
+                document.getElementById('lineResult').insertAdjacentHTML('beforeend', sendClientButton('the-best'));
             }
         }
 
@@ -720,6 +821,7 @@ const VERSION = '3.14';
 
             if (maxplayer.status === 'sucesso') {
                 document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', accessSelectButton(accessMessage));
+                document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', sendClientButton('maxplayer'));
                 document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerDomainForm(user));
             } else {
                 document.getElementById('maxplayerResult').insertAdjacentHTML('beforeend', maxplayerCreateForm(data));
@@ -777,10 +879,12 @@ const VERSION = '3.14';
             if (maxplayerFree.status !== 'sucesso') {
                 if (freeLine.id) {
                     document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', accessSelectButton(lineAccessMessage));
+                    document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', sendClientButton('maxplayer-free'));
                 }
                 document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', maxplayerFreeCreateForm(data));
             } else {
                 document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', accessSelectButton(userAccessMessage));
+                document.getElementById('maxplayerFreeResult').insertAdjacentHTML('beforeend', sendClientButton('maxplayer-free'));
             }
         }
 
@@ -854,6 +958,59 @@ const VERSION = '3.14';
             } finally {
                 button.disabled = false;
                 button.textContent = 'Pesquisar';
+            }
+        }
+
+        function openMessageModal(type) {
+            if (!lastUnifiedData) {
+                alert('Consulte um cliente antes de enviar.');
+                return;
+            }
+
+            pendingMessageType = type;
+            const modal = document.getElementById('messageModal');
+            const textarea = document.getElementById('messageText');
+            textarea.value = buildClientMessage(type, lastUnifiedData);
+            modal.hidden = false;
+            textarea.focus();
+            textarea.select();
+        }
+
+        function closeMessageModal() {
+            document.getElementById('messageModal').hidden = true;
+            pendingMessageType = '';
+        }
+
+        async function sendEditedMessage() {
+            if (!lastUnifiedData || !pendingMessageType) {
+                alert('Consulte um cliente antes de enviar.');
+                return;
+            }
+
+            const button = document.getElementById('sendMessageBtn');
+            const textarea = document.getElementById('messageText');
+            const mensagem = textarea.value.trim();
+            if (!mensagem) {
+                alert('A mensagem esta vazia.');
+                textarea.focus();
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = 'Enviando...';
+            try {
+                await requestJson('/botconversa/enviar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildBotConversaPayload(lastUnifiedData, mensagem, pendingMessageType))
+                });
+                closeMessageModal();
+                alert('Mensagem enviada para o BotConversa.');
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Enviar';
             }
         }
 
@@ -1068,6 +1225,14 @@ const VERSION = '3.14';
             }
         });
 
+        document.getElementById('sendMessageBtn').addEventListener('click', sendEditedMessage);
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !document.getElementById('messageModal').hidden) {
+                closeMessageModal();
+            }
+        });
+
         document.addEventListener('click', (event) => {
             const copyButton = event.target.closest('button[data-copy-value]');
             if (copyButton) {
@@ -1095,36 +1260,14 @@ const VERSION = '3.14';
                 return;
             }
 
-            const botConversaButton = event.target.closest('button[data-send-botconversa]');
-            if (botConversaButton) {
-                if (!lastUnifiedData || lastUnifiedData.linha?.status !== 'sucesso') {
-                    alert('Consulte um cliente com dados do The Best antes de enviar.');
-                    return;
-                }
-                if (!confirm('Enviar usuario, senha, vencimento e links deste cliente para o BotConversa?')) {
-                    return;
-                }
+            const messageButton = event.target.closest('button[data-open-message-modal]');
+            if (messageButton) {
+                openMessageModal(messageButton.dataset.openMessageModal);
+                return;
+            }
 
-                const original = botConversaButton.textContent;
-                botConversaButton.disabled = true;
-                botConversaButton.textContent = 'Enviando...';
-                requestJson('/botconversa/enviar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(buildBotConversaPayload(lastUnifiedData))
-                }).then(() => {
-                    botConversaButton.classList.add('sent');
-                    botConversaButton.textContent = 'Enviado';
-                    window.setTimeout(() => {
-                        botConversaButton.classList.remove('sent');
-                        botConversaButton.textContent = original;
-                    }, 1600);
-                }).catch((error) => {
-                    alert(error.message);
-                    botConversaButton.textContent = original;
-                }).finally(() => {
-                    botConversaButton.disabled = false;
-                });
+            if (event.target.closest('[data-close-message-modal]')) {
+                closeMessageModal();
                 return;
             }
 
