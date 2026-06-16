@@ -477,6 +477,64 @@ def build_client_search_mask(termo):
 
     return pd.Series(False, index=df.index)
 
+def parse_payment_expiration(value):
+    text = str(value or "").strip()
+    if not text or text in {"N/A", "nao_encontrado", "nan", "None"}:
+        return None
+
+    if text.isdigit():
+        try:
+            return datetime.fromtimestamp(int(text))
+        except (ValueError, OSError):
+            return None
+
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            pass
+
+    return None
+
+def is_test_client(item):
+    fields = [item.get("plano"), item.get("nome"), item.get("Revenda")]
+    text = " ".join(str(field or "").lower() for field in fields)
+    return any(marker in text for marker in ["teste", "test", "trial", "demo"])
+
+def enrich_payment_client(item):
+    item = dict(item)
+
+    if "telefone" in item:
+        phone = str(item["telefone"])
+        digits = re.sub(r"[^\d]", "", phone)
+        item["telefone"] = f"+{digits}" if digits else phone
+
+    dt_row_id = item.get("DT_RowId", "")
+    if dt_row_id and str(dt_row_id) != "nao_encontrado":
+        item["Link"] = f"https://pagueaqui.top/{dt_row_id}"
+    else:
+        item["Link"] = "nao_encontrado"
+
+    expiration = parse_payment_expiration(item.get("data_expiracao"))
+    if expiration:
+        days_left = (expiration.date() - datetime.now().date()).days
+        item["dias_restantes"] = days_left
+        item["status_vencimento"] = "ativo" if days_left >= 0 else "vencido"
+        item["vencimento_formatado"] = expiration.strftime("%d/%m/%Y")
+    else:
+        item["dias_restantes"] = "N/A"
+        item["status_vencimento"] = "sem_data"
+        item["vencimento_formatado"] = "N/A"
+
+    item["e_teste"] = "Sim" if is_test_client(item) else "Nao"
+    return item
+
+def payment_client_sort_key(item):
+    expiration = parse_payment_expiration(item.get("data_expiracao"))
+    active_rank = 1 if item.get("status_vencimento") == "ativo" else 0
+    timestamp = int(expiration.timestamp()) if expiration else 0
+    return (active_rank, timestamp)
+
 @app.post("/buscar")
 def buscar_cliente(request: SearchRequest):
     """
@@ -574,26 +632,17 @@ def buscar_cliente(request: SearchRequest):
     resultados = df[mask]
     
     # Converte para lista de dicionÃ¡rios
-    lista_resultados = resultados.to_dict(orient="records")
+    lista_resultados = [
+        enrich_payment_client(item)
+        for item in resultados.to_dict(orient="records")
+        if not is_test_client(item)
+    ]
+    lista_resultados.sort(key=payment_client_sort_key, reverse=True)
     
     if lista_resultados:
-        # Pega o primeiro resultado
-        item = lista_resultados[0]
-        
-        # Limpeza extra no telefone da resposta (garantir apenas nÃºmeros e adicionar +)
-        if "telefone" in item:
-            import re
-            phone = str(item["telefone"])
-            digits = re.sub(r'[^\d]', '', phone)
-            item["telefone"] = f"+{digits}" if digits else phone
-        
-        # Adiciona o link de pagamento
-        dt_row_id = item.get("DT_RowId", "")
-        if dt_row_id and dt_row_id != "nao_encontrado":
-            item["Link"] = f"https://pagueaqui.top/{dt_row_id}"
-        else:
-            item["Link"] = "nao_encontrado"
-            
+        item = dict(lista_resultados[0])
+        item["resultados"] = lista_resultados
+        item["total"] = len(lista_resultados)
         return item
     
     # Se nÃ£o encontrar nada, retorna objeto vazio com campos preenchidos com "nao_encontrado"
