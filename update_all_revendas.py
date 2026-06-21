@@ -93,6 +93,13 @@ def process_and_save(raw_data, filename):
         return False
 
     raw_list = raw_data['data']
+    if not raw_list:
+        print(
+            f"Resposta vazia para {filename}. "
+            "Arquivo existente preservado para evitar perda de dados."
+        )
+        return False
+
     processed_list = []
     seen_ids = set()
     
