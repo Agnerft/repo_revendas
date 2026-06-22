@@ -18,7 +18,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
-from sqlite_store import get_database_status, init_database, sync_excel_snapshot
+from sqlite_store import get_database_status, init_database, search_clients, sync_excel_snapshot
 
 app = FastAPI(title="ServiÃ§o de Busca de Revendas")
 
@@ -323,7 +323,7 @@ def status():
     return {
         "message": "API de Busca de Clientes Ativa",
         "total_registros": len(df) if df is not None else 0,
-        "fonte_consultas": "excel",
+        "fonte_consultas": "sqlite_com_fallback_excel",
         "sqlite": get_database_status(SQLITE_PATH),
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
@@ -490,6 +490,17 @@ def build_client_search_mask(termo):
 
     return pd.Series(False, index=df.index)
 
+def search_client_records(termo):
+    try:
+        status = get_database_status(SQLITE_PATH)
+        if not status.get("ready"):
+            raise RuntimeError(status.get("error") or "snapshot SQLite indisponivel")
+        return search_clients(SQLITE_PATH, termo)
+    except Exception as sqlite_error:
+        print(f"Aviso: busca SQLite falhou; usando Excel: {sqlite_error}")
+        mask = build_client_search_mask(termo)
+        return df[mask].to_dict(orient="records")
+
 def parse_payment_expiration(value):
     text = str(value or "").strip()
     if not text or text in {"N/A", "nao_encontrado", "nan", "None"}:
@@ -593,7 +604,7 @@ def buscar_cliente(request: SearchRequest):
     # Se o termo tem +, vamos tentar buscar exatamente como veio primeiro
     # Se nÃ£o encontrar, tentamos sem o +
     
-    mask = build_client_search_mask(termo)
+    records = search_client_records(termo)
     
     # Se nÃ£o achou e tem +, tenta sem o +
     if False and not mask.any() and "+" in termo:
@@ -642,12 +653,12 @@ def buscar_cliente(request: SearchRequest):
                 # Se nÃ£o tiver coluna telefone explÃ­cita, tenta em todas (mais lento)
                 mask = df.apply(lambda row: row.astype(str).apply(lambda x: sufixo in re.sub(r'[^\d]', '', x)).any(), axis=1)
 
-    resultados = df[mask]
+    resultados = records
     
     # Converte para lista de dicionÃ¡rios
     lista_resultados = [
         enrich_payment_client(item)
-        for item in resultados.to_dict(orient="records")
+        for item in resultados
         if not is_test_client(item)
     ]
     lista_resultados.sort(key=payment_client_sort_key, reverse=True)
@@ -904,12 +915,7 @@ def filtrar_clientes(request: SearchRequest):
     
     termo = q.lower().strip()
     
-    # Busca exata ou parcial (neste caso, parcial funciona bem para datas)
-    mask = build_client_search_mask(termo)
-    
-    resultados = df[mask]
-    
-    return resultados.to_dict(orient="records")
+    return search_client_records(termo)
 
 @app.get("/reload")
 def reload_data():

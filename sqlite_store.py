@@ -2,15 +2,24 @@ import json
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 
+@contextmanager
 def _connect(database_path):
     connection = sqlite3.connect(database_path, timeout=30)
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    connection.execute("PRAGMA busy_timeout=30000")
-    return connection
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA busy_timeout=30000")
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def init_database(database_path):
@@ -81,6 +90,21 @@ def init_database(database_path):
                 ON clientes_snapshot(data_expiracao);
             """
         )
+        has_fts_migration = connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = 3"
+        ).fetchone()
+        connection.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS clientes_fts USING fts5(
+                search_text,
+                content='clientes_snapshot',
+                content_rowid='source_row',
+                tokenize='trigram'
+            )
+            """
+        )
+        if not has_fts_migration:
+            connection.execute("INSERT INTO clientes_fts(clientes_fts) VALUES ('rebuild')")
         connection.execute(
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (1, datetime.now(timezone.utc).isoformat()),
@@ -88,6 +112,10 @@ def init_database(database_path):
         connection.execute(
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (2, datetime.now(timezone.utc).isoformat()),
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (3, datetime.now(timezone.utc).isoformat()),
         )
 
 
@@ -137,6 +165,76 @@ def sync_excel_snapshot(database_path, dataframe):
             """,
             (len(records), synced_at),
         )
+        connection.execute("INSERT INTO clientes_fts(clientes_fts) VALUES ('rebuild')")
+
+
+def _decode_rows(rows):
+    return [json.loads(row[0]) for row in rows]
+
+
+def search_clients(database_path, term):
+    """Search the SQLite snapshot, favoring indexed lookups when semantics allow it."""
+    term = str(term or "").lower().strip()
+    if not term:
+        return []
+
+    with _connect(database_path) as connection:
+        digits = re.sub(r"[^\d]", "", term)
+        candidates = [term]
+        if "+" in term:
+            candidates.append(term.replace("+", ""))
+        elif term.isdigit():
+            candidates.append("+" + term)
+
+        if "55" in term:
+            without_country_code = term.replace("+55", "").replace("55", "", 1)
+            if len(without_country_code) > 4:
+                candidates.append(without_country_code)
+
+        seen = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            if len(candidate) >= 3:
+                fts_query = '"' + candidate.replace('"', '""') + '"'
+                rows = connection.execute(
+                    """
+                    SELECT clientes_snapshot.dados_json
+                    FROM clientes_fts
+                    JOIN clientes_snapshot
+                        ON clientes_snapshot.source_row = clientes_fts.rowid
+                    WHERE clientes_fts MATCH ?
+                    ORDER BY clientes_snapshot.source_row
+                    """,
+                    (fts_query,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT dados_json
+                    FROM clientes_snapshot
+                    WHERE instr(search_text, ?) > 0
+                    ORDER BY source_row
+                    """,
+                    (candidate,),
+                ).fetchall()
+            if rows:
+                return _decode_rows(rows)
+
+        if len(digits) >= 8:
+            rows = connection.execute(
+                """
+                SELECT dados_json
+                FROM clientes_snapshot
+                WHERE instr(telefone_digits, ?) > 0
+                ORDER BY source_row
+                """,
+                (digits[-8:],),
+            ).fetchall()
+            return _decode_rows(rows)
+
+    return []
 
 
 def get_database_status(database_path):
