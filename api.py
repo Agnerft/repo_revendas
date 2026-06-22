@@ -18,6 +18,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
+from sqlite_store import get_database_status, init_database, sync_excel_snapshot
 
 app = FastAPI(title="ServiÃ§o de Busca de Revendas")
 
@@ -42,6 +43,7 @@ def load_env_file(path=ENV_FILE):
 load_env_file()
 
 EXCEL_FILE = os.path.join(BASE_DIR, "revendas_consolidadas.xlsx")
+SQLITE_PATH = os.getenv("SQLITE_PATH", os.path.join(BASE_DIR, "data", "revendas.db"))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
@@ -233,6 +235,11 @@ def load_data():
                 df_phone_digits = df.astype(str).agg(" ".join, axis=1).str.replace(r"[^\d]", "", regex=True)
             print(f"Colunas carregadas: {df.columns.tolist()}")
             print(f"Dados carregados: {len(df)} registros.")
+            try:
+                sync_excel_snapshot(SQLITE_PATH, df)
+                print(f"Snapshot do Excel sincronizado no SQLite: {SQLITE_PATH}")
+            except Exception as sqlite_error:
+                print(f"Aviso: Excel carregado, mas o snapshot SQLite falhou: {sqlite_error}")
         except Exception as e:
             print(f"Erro ao carregar Excel: {e}")
             df = pd.DataFrame()
@@ -301,6 +308,10 @@ def refresh_update_status():
 
     return update_status
 
+try:
+    init_database(SQLITE_PATH)
+except Exception as sqlite_error:
+    print(f"Aviso: nao foi possivel inicializar o SQLite: {sqlite_error}")
 load_data()
 
 @app.get("/")
@@ -312,6 +323,8 @@ def status():
     return {
         "message": "API de Busca de Clientes Ativa",
         "total_registros": len(df) if df is not None else 0,
+        "fonte_consultas": "excel",
+        "sqlite": get_database_status(SQLITE_PATH),
         "uso_post": "POST /buscar com body {'termo': 'valor'}"
     }
 
