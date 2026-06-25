@@ -1,4 +1,4 @@
-const VERSION = '3.16';
+const VERSION = '3.17';
         const endpoints = [
             {
                 method: 'GET',
@@ -210,6 +210,65 @@ const VERSION = '3.16';
                 throw new Error(JSON.stringify(data, null, 2));
             }
             return data;
+        }
+
+        async function exportExpirations(event) {
+            event.preventDefault();
+            const startDate = document.getElementById('exportStartDate').value;
+            const endDate = document.getElementById('exportEndDate').value;
+            const status = document.getElementById('exportStatus').value;
+            const button = document.getElementById('expirationExportButton');
+            const feedback = document.getElementById('expirationExportFeedback');
+
+            if (!startDate || !endDate) {
+                feedback.textContent = 'Preencha a data inicial e a data final.';
+                return;
+            }
+            if (startDate > endDate) {
+                feedback.textContent = 'A data inicial não pode ser maior que a data final.';
+                return;
+            }
+
+            button.disabled = true;
+            button.textContent = 'Gerando...';
+            feedback.textContent = 'Preparando a planilha com o status deste momento...';
+
+            try {
+                const params = new URLSearchParams({
+                    data_inicio: startDate,
+                    data_fim: endDate,
+                    status
+                });
+                const response = await fetch(`/exportar/vencimentos?${params}&v=${VERSION}`, {
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.detail || 'Não foi possível gerar a planilha.');
+                }
+
+                const blob = await response.blob();
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const filenameMatch = disposition.match(/filename="([^"]+)"/);
+                const filename = filenameMatch ? filenameMatch[1] : 'vencimentos.xlsx';
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+
+                const total = Number(response.headers.get('X-Total-Records') || 0);
+                feedback.textContent = `${total.toLocaleString('pt-BR')} registro(s) exportado(s).`;
+            } catch (error) {
+                feedback.textContent = error.message;
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Baixar Excel';
+            }
         }
 
         function pretty(data) {
@@ -1232,6 +1291,7 @@ const VERSION = '3.16';
             }
             await runUnifiedSearch(term);
         });
+        document.getElementById('expirationExportForm').addEventListener('submit', exportExpirations);
 
         document.getElementById('themeToggleBtn').addEventListener('click', () => {
             const isDark = document.body.classList.toggle('theme-dark');

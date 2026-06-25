@@ -63,6 +63,33 @@
                 </div>
             </section>
 
+            <section class="export-card">
+                <div>
+                    <h2 class="unified-title">Extrair por vencimento</h2>
+                    <p class="unified-text">Escolha o intervalo e baixe uma planilha. Ativos e expirados são definidos pela data e hora exatas da extração.</p>
+                </div>
+                <form class="export-form" id="expirationExportForm">
+                    <label>
+                        <span>Data inicial</span>
+                        <input id="exportStartDate" type="date" required>
+                    </label>
+                    <label>
+                        <span>Data final</span>
+                        <input id="exportEndDate" type="date" required>
+                    </label>
+                    <label>
+                        <span>Status na extração</span>
+                        <select id="exportStatus">
+                            <option value="todos">Todos</option>
+                            <option value="ativos">Ativos</option>
+                            <option value="expirados">Expirados</option>
+                        </select>
+                    </label>
+                    <button class="btn primary" id="expirationExportButton" type="submit">Baixar Excel</button>
+                </form>
+                <p class="export-feedback" id="expirationExportFeedback" aria-live="polite"></p>
+            </section>
+
             <section class="status-grid">
                 <article class="stat">
                     <div class="stat-label">Registros</div>
@@ -125,6 +152,6 @@
         </section>
     </div>
 
-    <script src="/static/painel.js?v=20260517-9"></script>
+    <script src="/static/painel.js?v=20260625-1"></script>
 </body>
 </html>

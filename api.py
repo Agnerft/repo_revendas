@@ -1,5 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import json
 import base64
+from io import BytesIO
 import re
 import unicodedata
 import subprocess
@@ -18,6 +19,7 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 from sqlite_store import get_database_status, init_database, search_clients, sync_excel_snapshot
 
 app = FastAPI(title="ServiÃ§o de Busca de Revendas")
@@ -53,6 +55,7 @@ PAINEL_TEMPLATE = os.path.join(TEMPLATES_DIR, "painel.html")
 PANEL_USERNAME = os.getenv("PANEL_USERNAME", "")
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "")
 PANEL_PASSWORD_ENABLED = bool(PANEL_PASSWORD)
+APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "America/Sao_Paulo"))
 df = None
 df_search_text = None
 df_phone_digits = None
@@ -520,6 +523,51 @@ def parse_payment_expiration(value):
 
     return None
 
+def parse_expiration_in_app_timezone(value):
+    text = str(value or "").strip()
+    if text.isdigit():
+        try:
+            return datetime.fromtimestamp(int(text), APP_TIMEZONE)
+        except (ValueError, OSError):
+            return None
+
+    expiration = parse_payment_expiration(value)
+    if expiration is None:
+        return None
+    if expiration.tzinfo is None:
+        return expiration.replace(tzinfo=APP_TIMEZONE)
+    return expiration.astimezone(APP_TIMEZONE)
+
+def filter_clients_by_expiration(dataframe, start_date, end_date, status="todos", now=None):
+    if status not in {"todos", "ativos", "expirados"}:
+        raise ValueError("Status deve ser todos, ativos ou expirados.")
+    if start_date > end_date:
+        raise ValueError("A data inicial nao pode ser maior que a data final.")
+
+    reference_time = now or datetime.now(APP_TIMEZONE)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=APP_TIMEZONE)
+    else:
+        reference_time = reference_time.astimezone(APP_TIMEZONE)
+
+    records = []
+    for item in dataframe.to_dict(orient="records"):
+        expiration = parse_expiration_in_app_timezone(item.get("data_expiracao"))
+        if expiration is None or not start_date <= expiration.date() <= end_date:
+            continue
+
+        current_status = "ativo" if expiration >= reference_time else "expirado"
+        if status != "todos" and current_status != status[:-1]:
+            continue
+
+        record = dict(item)
+        record["vencimento_data_hora"] = expiration.strftime("%d/%m/%Y %H:%M:%S")
+        record["status_na_extracao"] = current_status
+        record["extraido_em"] = reference_time.strftime("%d/%m/%Y %H:%M:%S")
+        records.append(record)
+
+    return records
+
 def is_test_client(item):
     fields = [item.get("plano"), item.get("nome"), item.get("Revenda")]
     text = " ".join(str(field or "").lower() for field in fields)
@@ -916,6 +964,70 @@ def filtrar_clientes(request: SearchRequest):
     termo = q.lower().strip()
     
     return search_client_records(termo)
+
+@app.get("/exportar/vencimentos")
+def exportar_vencimentos(
+    data_inicio: str,
+    data_fim: str,
+    status: str = "todos",
+    _authenticated: bool = Depends(require_panel_auth),
+):
+    if df is None or df.empty:
+        raise HTTPException(status_code=503, detail="Dados nao carregados ou vazios.")
+
+    try:
+        start_date = datetime.strptime(data_inicio, "%Y-%m-%d").date()
+        end_date = datetime.strptime(data_fim, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Use datas no formato AAAA-MM-DD.")
+
+    extraction_time = datetime.now(APP_TIMEZONE)
+    try:
+        records = filter_clients_by_expiration(
+            df,
+            start_date,
+            end_date,
+            status=status.lower().strip(),
+            now=extraction_time,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+    export_df = pd.DataFrame(records)
+    if export_df.empty:
+        export_df = pd.DataFrame(
+            columns=[
+                *df.columns.tolist(),
+                "vencimento_data_hora",
+                "status_na_extracao",
+                "extraido_em",
+            ]
+        )
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name="Vencimentos")
+        worksheet = writer.book["Vencimentos"]
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+        for column_cells in worksheet.columns:
+            max_length = min(
+                max(len(str(cell.value or "")) for cell in column_cells) + 2,
+                40,
+            )
+            worksheet.column_dimensions[column_cells[0].column_letter].width = max_length
+    output.seek(0)
+
+    filename = f"vencimentos_{data_inicio}_{data_fim}_{status.lower().strip()}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Total-Records": str(len(records)),
+            "X-Generated-At": extraction_time.isoformat(),
+        },
+    )
 
 @app.get("/reload")
 def reload_data():
